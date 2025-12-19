@@ -38,7 +38,7 @@ export default {
       jsEngine: "hermes",
       enableShrinkResources: true,
       androidGradlePlugin: "7.1.1",
-      minSdkVersion: 21
+      minSdkVersion: 26
     },
     web: {
       favicon: "./assets/images/Favicon.png"

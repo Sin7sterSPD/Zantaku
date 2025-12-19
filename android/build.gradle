@@ -9,9 +9,6 @@ buildscript {
         kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.25'
 
         ndkVersion = "26.1.10909125"
-        
-        // Set ffmpeg-kit package configuration to use https package  
-        ffmpegKitPackage = "https"
     }
     repositories {
         google()
@@ -40,10 +37,5 @@ allprojects {
         google()
         mavenCentral()
         maven { url 'https://www.jitpack.io' }
-        
-        // Removed flatDir repository - using official dependencies now
-        // flatDir {
-        //     dirs "$rootDir/libs"
-        // }
     }
 }

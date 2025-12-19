@@ -15,6 +15,8 @@
     "postbuild:android:prod-disabled": "node ./scripts/obfuscate.js",
     "build:prod": "cross-env NODE_ENV=production eas build --platform android",
     "build:preview": "cross-env NODE_ENV=production eas build --platform android --profile preview",
+    "build:apk": "cd android && gradlew.bat assembleRelease && cd ..",
+    "build:apk:clean": "cd android && gradlew.bat clean && gradlew.bat assembleRelease && cd ..",
     "postinstall": "patch-package"
   },
   "jest": {
@@ -104,7 +106,6 @@
     "react-native-draggable-flatlist": "^4.0.1",
     "react-native-encrypted-storage": "^4.0.3",
     "react-native-extra-dimensions-android": "^1.2.5",
-    "react-native-fast-image": "^8.6.3",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-image-colors": "^2.4.0",
     "react-native-linear-gradient": "^2.8.3",

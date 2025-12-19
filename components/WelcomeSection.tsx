@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Modal, Platform, FlatList, BackHandler, Alert, DeviceEventEmitter, UIManager, LayoutAnimation } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Modal, Platform, FlatList, BackHandler, Alert, DeviceEventEmitter, UIManager, LayoutAnimation, Linking } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useTheme } from '../hooks/useTheme';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,50 +34,50 @@ const getTimeBasedGreeting = async (name: string) => {
   
   // Early morning (5 AM - 8 AM)
   const earlyMorningGreetings = [
-    `Rise from the grave, ${name}! 🎃`,
-    `Spooky morning vibes, ${name}! 👻`,
-    `The witching hour begins, ${name}! 🧙`,
-    `Morning monsters need anime too, ${name}! 🦇`,
+    `Merry Christmas, ${name}! 🎄✨`,
+    `Ho ho ho! Good morning, ${name}! 🎅`,
+    `Christmas morning vibes, ${name}! 🎁`,
+    `Rise and shine, ${name}! 'Tis the season! ⛄`,
   ];
 
   // Morning (8 AM - 11 AM)
   const morningGreetings = [
-    `Trick or treat time, ${name}! 🎃`,
-    `Hello ${name}! Ready for spooky anime? 👻`,
-    `What's haunting your watchlist today, ${name}? 🕷️`,
-    `Fresh horror picks waiting for you, ${name}! 🧛`,
+    `Merry Christmas, ${name}! 🎄`,
+    `Hello ${name}! Ready for some holiday anime? 🎅`,
+    `What's on your watchlist today, ${name}? 🎁`,
+    `Fresh Christmas picks waiting for you, ${name}! ⛄`,
   ];
 
   // Afternoon (11 AM - 5 PM)
   const afternoonGreetings = [
-    `Hey ${name}! Time for some Halloween anime! 🎃✨`,
-    `Afternoon horror break, ${name}? 👻`,
-    `Perfect time for a spooky episode, ${name}! 🦇`,
-    `Konnichiwa, ${name}! What's brewing? 🧙‍♀️`,
+    `Hey ${name}! Time for some Christmas anime! 🎄✨`,
+    `Afternoon holiday break, ${name}? 🎅`,
+    `Perfect time for a festive episode, ${name}! 🎁`,
+    `Konnichiwa, ${name}! What's brewing? ⛄`,
   ];
 
   // Evening (5 PM - 9 PM)
   const eveningGreetings = [
-    `Spooky evening, ${name}! 🎃🌙`,
-    `The ghosts are ready for anime, ${name}! 👻`,
-    `Evening anime session, ${name}? 🧛`,
-    `Your haunted watchlist is calling, ${name}! 🦇`,
+    `Merry Christmas evening, ${name}! 🎄🌙`,
+    `The holidays are ready for anime, ${name}! 🎅`,
+    `Evening anime session, ${name}? 🎁`,
+    `Your watchlist is calling, ${name}! ⛄`,
   ];
 
   // Night (9 PM - 12 AM)
   const nightGreetings = [
-    `Midnight horror vibes, ${name}! 🎃🌟`,
-    `Night time is spooky anime time, ${name}! 👻`,
-    `One more episode before the witching hour, ${name}? 🧙`,
-    `Late night horror hits different, ${name}! 🦇`,
+    `Midnight Christmas vibes, ${name}! 🎄🌟`,
+    `Night time is holiday anime time, ${name}! 🎅`,
+    `One more episode before Christmas, ${name}? 🎁`,
+    `Late night holiday hits different, ${name}! ⛄`,
   ];
 
   // Midnight/Late Night (12 AM - 5 AM)
   const midnightGreetings = [
-    `Night creature ${name}? Same here! 🦉🎃`,
-    `Can't sleep? Spooky anime can help, ${name}! 👻`,
-    `Late night horror hits different, ${name}! 🧛`,
-    `The perfect time for scary manga, ${name}! 🕷️`,
+    `Merry Christmas, ${name}! 🎄✨`,
+    `Can't sleep? Holiday anime can help, ${name}! 🎅`,
+    `Late night Christmas vibes, ${name}! 🎁`,
+    `The perfect time for festive manga, ${name}! ⛄`,
   ];
 
   // Select appropriate greetings array based on time
@@ -2520,6 +2520,31 @@ const WelcomeSection = memo(({ user, trendingMedia, currentlyWatching, currently
                   >
                     {currentGreeting || getDefaultGreeting(user.name)}
                   </Text>
+                  {/* Zantaku V2 Tease */}
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL('https://www.zantaku.com')}
+                    activeOpacity={0.7}
+                    style={{
+                      marginTop: 8,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      backgroundColor: currentTheme.colors.primary + '15',
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: currentTheme.colors.primary + '30',
+                    }}
+                  >
+                    <Text style={{
+                      color: currentTheme.colors.primary,
+                      fontSize: 14,
+                      fontWeight: '600',
+                      flex: 1,
+                    }}>
+                      🎁 Check out Zantaku V2 →
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>

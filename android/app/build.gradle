@@ -2,8 +2,6 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
-import java.net.URL
-
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 /**
@@ -67,7 +65,7 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = true
+def enableProguardInReleaseBuilds = (findProperty('android.enableProguardInReleaseBuilds') ?: false).toBoolean()
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -88,45 +86,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.kamilist.app"
+    namespace 'com.kamilist.app'
     defaultConfig {
         applicationId 'com.kamilist.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
-        
-        // Network optimization for API reliability
-        manifestPlaceholders = [
-            networkSecurityConfig: "@xml/network_security_config"
-        ]
-        
-        // Additional build config values for API handling
-        buildConfigField "String", "TAKIAPI_PRIMARY", '"https://takiapi.xyz"'
-        buildConfigField "String", "TAKIAPI_MIRROR1", '"https://api.takiapi.xyz"'
-        buildConfigField "String", "TAKIAPI_MIRROR2", '"https://cdn.takiapi.xyz"'
-
-        
-        // Add network security configurations for problematic domains
-        buildConfigField "String", "HIANIME_API_BASE", '"https://anianiwatchwatching.vercel.app"'
-        buildConfigField "String", "KUROJI_API_BASE", '"https://kuroji.1ani.me"'
-        buildConfigField "boolean", "ENABLE_NETWORK_DEBUG", "true"
-        buildConfigField "int", "NETWORK_TIMEOUT", "30000"
-        
-        // Zencloud API configuration for VLC player
-        buildConfigField "String", "ZENCLOUD_BASE", '"https://zencloud.cc"'
-        buildConfigField "String", "ZENCLOUD_CDN", '"https://zantaku.zencloud.cc"'
-        buildConfigField "String", "ZENCLOUD_API_CDN", '"https://cdn.zencloud.cc"'
-        buildConfigField "boolean", "ENABLE_VLC_PLAYER", "true"
-    }
-    
-    splits {
-        abi {
-            reset()
-            enable true
-            universalApk false  // If true, also generate a universal APK
-            include "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-        }
     }
     signingConfigs {
         debug {
@@ -135,55 +101,29 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
-        release {
-            if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
-            }
-        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug // Change this to signingConfigs.release when you have a release keystore
-            shrinkResources false
-            minifyEnabled false
-            // proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-            crunchPngs true
-            zipAlignEnabled true
-            debuggable false
-            
-            // Optimize for network reliability in release builds
-            buildConfigField "boolean", "API_DEBUG_MODE", "false"
-            buildConfigField "int", "API_TIMEOUT_MS", "15000"
-            buildConfigField "int", "API_RETRY_COUNT", "3"
+            // Caution! In production, you need to generate your own keystore file.
+            // see https://reactnative.dev/docs/signed-apk-android.
+            signingConfig signingConfigs.debug
+            shrinkResources (findProperty('android.enableShrinkResourcesInReleaseBuilds')?.toBoolean() ?: false)
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            crunchPngs (findProperty('android.enablePngCrunchInReleaseBuilds')?.toBoolean() ?: true)
         }
     }
     packagingOptions {
         jniLibs {
             useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)
         }
-        // Exclude problematic FFmpeg Kit language files with invalid paths
-        excludes += [
-            '**/language/**',
-            '**/ash_approx_any.txt',
-            '/language/**'
-        ]
     }
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
-    
-    // Repository configuration - using official dependencies now
-    // repositories {
-    //     flatDir {
-    //         dirs "$rootDir/libs"
-    //     }
-    // }
 }
 
 // Apply static values from `gradle.properties` to the `android.packagingOptions`
@@ -232,77 +172,5 @@ dependencies {
         implementation("com.facebook.react:hermes-android")
     } else {
         implementation jscFlavor
-    }
-    
-    // FFmpeg Kit removed - project has been retired and dependencies are no longer available
-    // implementation 'com.arthenica:ffmpeg-kit-https:6.0'
-    // implementation 'com.arthenica:smart-exception-java:0.2.1'
-    
-    // Enhanced networking libraries for better API reliability
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
-    
-    // VLC Media Player support for advanced streaming
-    implementation 'org.videolan.android:libvlc-all:3.4.9'
-}
-
-// Add script to download FFmpeg Kit AAR from alternative source
-afterEvaluate {
-    def aarUrl = 'https://github.com/NooruddinLakhani/ffmpeg-kit-full-gpl/releases/download/v1.0.0/ffmpeg-kit-full-gpl.aar'
-    def aarFile = file("${rootDir}/libs/ffmpeg-kit-https.aar")
-
-    tasks.register("downloadFFmpegKitAar") {
-        doLast {
-            if (!aarFile.parentFile.exists()) {
-                println "📁 Creating directory: ${aarFile.parentFile.absolutePath}"
-                aarFile.parentFile.mkdirs()
-            }
-            if (!aarFile.exists()) {
-                println "⏬ Downloading FFmpeg Kit AAR from $aarUrl..."
-                try {
-                    new URL(aarUrl).withInputStream { i ->
-                        aarFile.withOutputStream { it << i }
-                    }
-                    println "✅ FFmpeg Kit AAR downloaded to ${aarFile.absolutePath}"
-                } catch (Exception e) {
-                    println "❌ Failed to download FFmpeg Kit AAR: ${e.message}"
-                    println "Please manually download the AAR file and place it at ${aarFile.absolutePath}"
-                }
-            } else {
-                println "ℹ️ FFmpeg Kit AAR already exists at ${aarFile.absolutePath}"
-            }
-        }
-    }
-
-    // Add task to verify API endpoints are reachable during build
-    tasks.register("verifyApiEndpoints") {
-        doLast {
-            def endpoints = [
-                'https://takiapi.xyz',
-                'https://api.takiapi.xyz', 
-                'https://magaapinovel.xyz'
-            ]
-            
-            println "🔍 Verifying API endpoints reachability..."
-            endpoints.each { endpoint ->
-                try {
-                    def connection = new URL("${endpoint}/health").openConnection()
-                    connection.setConnectTimeout(5000)
-                    connection.setReadTimeout(5000)
-                    connection.connect()
-                    println "✅ ${endpoint} - Reachable"
-                } catch (Exception e) {
-                    println "⚠️ ${endpoint} - Not reachable (${e.message})"
-                }
-            }
-        }
-    }
-
-    // Disabled: Make sure the AAR is downloaded before compilation begins
-    // preBuild.dependsOn("downloadFFmpegKitAar")
-    
-    // Verify API endpoints before release builds
-    tasks.matching { it.name.contains("Release") }.configureEach {
-        dependsOn("verifyApiEndpoints")
     }
 }

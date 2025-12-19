@@ -25,10 +25,6 @@ class MainApplication : Application(), ReactApplication {
             val packages = PackageList(this).packages
             // Packages that cannot be autolinked yet can be added manually here, for example:
             // packages.add(new MyReactNativePackage());
-            
-            // Add Picture-in-Picture support
-            packages.add(PictureInPicturePackage())
-            
             return packages
           }
 
@@ -46,24 +42,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    
-    // Enhanced SoLoader initialization with error handling for problematic FFmpeg Kit AAR
-    try {
-      SoLoader.init(this, OpenSourceMergedSoMapping)
-    } catch (e: Exception) {
-      // Log the error but don't crash the app
-      android.util.Log.e("MainApplication", "SoLoader initialization failed", e)
-      
-      // Try fallback initialization without merged mapping
-      try {
-        SoLoader.init(this, false)
-        android.util.Log.i("MainApplication", "SoLoader initialized with fallback method")
-      } catch (fallbackException: Exception) {
-        android.util.Log.e("MainApplication", "SoLoader fallback also failed", fallbackException)
-        // Continue without SoLoader - some features may not work but app won't crash
-      }
-    }
-    
+    SoLoader.init(this, OpenSourceMergedSoMapping)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
       load()
