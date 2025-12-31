@@ -512,19 +512,10 @@ export async function assignRewardsToUser(userId: string, rewardIds: string[]): 
 }
 
 // Main function to process rewards for a user
+// NOTE: Supabase is no longer available, so rewards cannot be processed.
+// This returns an empty array immediately to avoid slow network timeouts.
 export async function processUserRewards(anilistId: number, supabaseUserId: string): Promise<string[]> {
-  // 1. Get user activity
-  const activityData = await getUserWeeklyActivity(anilistId);
-  if (!activityData) {
-    console.error('Failed to get user activity data');
-    return [];
-  }
-  
-  // 2. Evaluate which rewards should be unlocked
-  const unlockedRewardIds = await evaluateRewards(activityData);
-  
-  // 3. Assign rewards to user in database
-  await assignRewardsToUser(supabaseUserId, unlockedRewardIds);
-  
-  return unlockedRewardIds;
+  // Supabase is no longer available - return empty array immediately to avoid network delays
+  console.log('processUserRewards: Supabase is no longer available, skipping reward processing for anilist_id:', anilistId);
+  return [];
 } 

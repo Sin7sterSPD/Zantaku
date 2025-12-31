@@ -5,14 +5,14 @@ import { useTheme } from '../hooks/useTheme';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as SecureStore from 'expo-secure-store';
 import { useQuery } from '@tanstack/react-query';
-import { supabase, getAnilistUser, getUserRewards } from '../lib/supabase';
+// Supabase imports removed - Supabase is no longer available
 import BadgeCounter from './BadgeCounter';
 import AchievementsList from './AchievementsList';
 import { useRouter } from 'expo-router';
 import { useRewards, RewardDetail, BadgeDisplay } from '../hooks/useRewards';
 import { useStreaks } from '../hooks/useStreaks';
 import { STORAGE_KEY } from '../constants/auth';
-import { processUserRewards } from '../utils/rewards';
+// processUserRewards import removed - rewards disabled since Supabase is no longer available
 import { checkAndUpdateStreaks } from '../utils/streakTracker';
 import ENV from '../config';
 
@@ -790,72 +790,16 @@ const WelcomeSection = memo(({ user, trendingMedia, currentlyWatching, currently
         const token = await SecureStore.getItemAsync(STORAGE_KEY.AUTH_TOKEN);
         if (!token || !user.id) return;
         
-        // Get the Supabase user ID for this AniList user
-        const supabaseUser = await getAnilistUser(user.id);
-        
-        // Even if we don't get a Supabase user, try to check streaks with the AniList ID directly
-        if (supabaseUser?.id) {
-          setAnilistUserId(supabaseUser.id);
-          
-          // Check and update streaks (returned data handled by hook now)
-          try {
-            await checkAndUpdateStreaks(user.id, supabaseUser.id);
-          } catch (streakError) {
-            console.error('Error updating streaks with Supabase user:', streakError);
-          }
-          
-          // Get all user rewards to display in the UI
-          try {
-            // Get all user rewards to display in the UI
-            console.log('Fetching user rewards for display...');
-            const userRewardsData = await getUserRewards(supabaseUser.id);
-            
-            if (userRewardsData && userRewardsData.length > 0) {
-              console.log(`Found ${userRewardsData.length} badges for this user`);
-              const allRewardIds = userRewardsData.map((ur: { reward_id: string }) => ur.reward_id);
-              setNewlyUnlockedRewards(allRewardIds);
-            } else {
-              console.log('No badges found for this user');
-              setNewlyUnlockedRewards([]);
-            }
-            
-            // Process rewards based on AniList data to check for new ones
-            const unlockedRewardIds = await processUserRewards(user.id, supabaseUser.id);
-            
-            // Check if any of these rewards are newly unlocked
-            if (unlockedRewardIds.length > 0) {
-              console.log(`User has ${unlockedRewardIds.length} newly unlocked rewards to show`);
-              
-              // Get previously viewed rewards from storage
-              const viewedRewardsJson = await SecureStore.getItemAsync(VIEWED_REWARDS_KEY) || '[]';
-              const viewedRewards = JSON.parse(viewedRewardsJson);
-              
-              // Filter to only truly new rewards the user hasn't seen
-              const trulyNewRewards = unlockedRewardIds.filter((id: string) => !viewedRewards.includes(id));
-              
-              if (trulyNewRewards.length > 0) {
-                console.log(`${trulyNewRewards.length} of these are truly new and unseen`);
-                
-                // Add these rewards to the viewed list and to the displayed rewards
-                const updatedViewedRewards = [...viewedRewards, ...trulyNewRewards];
-                await SecureStore.setItemAsync(VIEWED_REWARDS_KEY, JSON.stringify(updatedViewedRewards));
-                
-                // Add newly unlocked rewards to the existing ones
-                setNewlyUnlockedRewards(prev => [...prev, ...trulyNewRewards]);
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching user rewards:', error);
-          }
-        } else {
-          // If we don't have a Supabase user, try to use AniList ID directly
-          console.log('No Supabase user found, using AniList ID directly for streaks');
-          try {
-            await checkAndUpdateStreaks(user.id, user.id.toString());
-          } catch (fallbackError) {
-            console.error('Error updating streaks with AniList ID fallback:', fallbackError);
-          }
+        // Supabase is no longer available, so we skip user lookups and work directly with AniList ID
+        // Check and update streaks using AniList ID only (no Supabase needed)
+        try {
+          await checkAndUpdateStreaks(user.id);
+        } catch (streakError) {
+          console.error('Error updating streaks:', streakError);
         }
+        
+        // Rewards are disabled since Supabase is no longer available
+        setNewlyUnlockedRewards([]);
       } catch (error) {
         console.error('Error fetching user statistics:', error);
       } finally {
@@ -866,12 +810,12 @@ const WelcomeSection = memo(({ user, trendingMedia, currentlyWatching, currently
     fetchUserData();
   }, [user.id]);
   
-  // Use our rewards hook to get badges with proper Supabase UUID
+  // Use our rewards hook to get badges (rewards disabled since Supabase is no longer available)
   const { 
     isLoading: isLoadingRewards, 
     getPrimaryBadge, 
     checkAndAssignRewards 
-  } = useRewards(anilistUserId ? anilistUserId : null);
+  } = useRewards(null); // Pass null since Supabase is no longer available
   
   // Animation values
   const messageAnim = useRef(new Animated.Value(0)).current; 

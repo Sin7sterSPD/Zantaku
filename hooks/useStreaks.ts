@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
 import * as SecureStore from 'expo-secure-store';
-import { STORAGE_KEY } from '../constants/auth';
-import ENV from '../config';
+
+const STREAK_DATA_KEY_PREFIX = 'streak_data_'; // Prefix for per-user streak data
 
 interface StreakData {
   anilist_id: number;
@@ -28,46 +27,23 @@ export function useStreaks(anilistId?: number) {
         setIsLoading(true);
         setError(null);
         
-        // Use direct REST API access with apikey as URL parameter
-        const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-        const apiKey = ENV.SUPABASE_ANON_KEY;
-        const url = `${restEndpoint}/user_streaks?apikey=${apiKey}&anilist_id=eq.${anilistId}`;
+        // Load streak data from local storage
+        const storageKey = `${STREAK_DATA_KEY_PREFIX}${anilistId}`;
+        const streakDataJson = await SecureStore.getItemAsync(storageKey);
         
-        // Log with masked API key for security but use real key in request
-        console.log('Fetching streak data via direct API:', url.replace(apiKey, '***'));
-        
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          }
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('API Error loading streak data:', {
-            status: response.status,
-            statusText: response.statusText,
-            body: errorText
-          });
-          throw new Error(`API error: ${response.status} ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        
-        if (!data || data.length === 0) {
-          console.log('No streak data found for user:', anilistId);
+        if (!streakDataJson) {
+          console.log('No streak data found for user in local storage:', anilistId);
           setStreakData(null);
         } else {
-          console.log('Streak data loaded successfully:', {
-            current_streak: data[0].current_streak,
-            longest_streak: data[0].longest_streak
+          const data = JSON.parse(streakDataJson) as StreakData;
+          console.log('Streak data loaded successfully from local storage:', {
+            current_streak: data.current_streak,
+            longest_streak: data.longest_streak
           });
-          setStreakData(data[0] as StreakData);
+          setStreakData(data);
         }
       } catch (err) {
-        console.error('Error loading streak data:', err);
+        console.error('Error loading streak data from local storage:', err);
         setError('Failed to load streak data');
       } finally {
         setIsLoading(false);

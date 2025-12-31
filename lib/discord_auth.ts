@@ -1,10 +1,36 @@
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 
 // Official Supabase client specifically for Discord OAuth
-const SUPABASE_URL = 'https://luxqxvpksmjwfxfqwvub.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx1eHF4dnBrc21qd2Z4ZnF3dnViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc1NDIwMzUsImV4cCI6MjA1MzExODAzNX0.2vEa8LQ_1toVFyoRdMwwzIEKVa9azY1C0KY6YeyY66I';
+function getDiscordSupabaseConfig() {
+  let supabaseUrl = '';
+  let supabaseAnonKey = '';
+
+  try {
+    // Try Expo Constants first (for React Native/Expo Go)
+    const env = Constants.expoConfig?.extra || {};
+    supabaseUrl = env.DISCORD_SUPABASE_URL || '';
+    supabaseAnonKey = env.DISCORD_SUPABASE_ANON_KEY || '';
+  } catch (error) {
+    console.warn('[DiscordAuth] Failed to load config from Expo Constants:', error);
+  }
+
+  // Fallback to process.env for Node.js environments
+  if ((!supabaseUrl || !supabaseAnonKey) && typeof process !== 'undefined' && process.env) {
+    supabaseUrl = supabaseUrl || process.env.DISCORD_SUPABASE_URL || '';
+    supabaseAnonKey = supabaseAnonKey || process.env.DISCORD_SUPABASE_ANON_KEY || '';
+  }
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.warn('[DiscordAuth] ⚠️ Discord Supabase credentials not found in environment variables');
+  }
+
+  return { supabaseUrl, supabaseAnonKey };
+}
+
+const { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY } = getDiscordSupabaseConfig();
 
 export const discordSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {

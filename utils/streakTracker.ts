@@ -1,11 +1,10 @@
-import { supabase } from '../lib/supabase';
 import * as SecureStore from 'expo-secure-store';
 import { STORAGE_KEY } from '../constants/auth';
 import { format, differenceInCalendarDays, isSameDay, differenceInHours, isYesterday } from 'date-fns';
-import ENV from '../config';
 
 // Cache constants
 const STREAK_CACHE_KEY = 'streak_last_check';
+const STREAK_DATA_KEY_PREFIX = 'streak_data_'; // Prefix for per-user streak data
 const CACHE_EXPIRY_HOURS = 4; // Recheck every 4 hours
 
 // Types for AniList API responses
@@ -79,7 +78,7 @@ function determineActivityType(recentActivities: Activity[]): 'anime' | 'manga' 
 }
 
 // Main function to check and update user streaks
-export async function checkAndUpdateStreaks(anilistId: number, supabaseUserId: string): Promise<StreakData | null> {
+export async function checkAndUpdateStreaks(anilistId: number): Promise<StreakData | null> {
   try {
     console.log('Checking streak update for user:', anilistId);
     
@@ -138,8 +137,8 @@ export async function checkAndUpdateStreaks(anilistId: number, supabaseUserId: s
       activityType
     );
     
-    // Save updated streak to Supabase
-    await saveStreakData(updatedStreak, supabaseUserId);
+    // Save updated streak to local storage
+    await saveStreakData(updatedStreak);
     
     // Update cache timestamp
     await updateStreakCheckTimestamp();
@@ -354,124 +353,39 @@ function updateStreakData(
   return updatedData;
 }
 
-// Get user streak data from Supabase
+// Get user streak data from local storage
 async function getUserStreakData(anilistId: number): Promise<StreakData | null> {
   try {
-    // Use direct REST API access with apikey as URL parameter
-    const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-    const apiKey = ENV.SUPABASE_ANON_KEY;
-    const url = `${restEndpoint}/user_streaks?apikey=${apiKey}&anilist_id=eq.${anilistId}`;
+    const storageKey = `${STREAK_DATA_KEY_PREFIX}${anilistId}`;
+    const streakDataJson = await SecureStore.getItemAsync(storageKey);
     
-    // Log URL with masked API key for security
-    console.log('Making direct REST request to:', url.replace(apiKey, '***'));
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error getting user streak data:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
+    if (!streakDataJson) {
+      console.log('No streak data found for user in local storage');
       return null;
     }
     
-    const data = await response.json();
-    
-    if (!data || data.length === 0) {
-      console.log('No streak data found for user');
-      return null;
-    }
-    
-    console.log('Successfully fetched streak data:', {
-      id: data[0].id,
-      anilist_id: data[0].anilist_id,
-      current_streak: data[0].current_streak,
-      longest_streak: data[0].longest_streak
+    const streakData = JSON.parse(streakDataJson) as StreakData;
+    console.log('Successfully loaded streak data from local storage:', {
+      anilist_id: streakData.anilist_id,
+      current_streak: streakData.current_streak,
+      longest_streak: streakData.longest_streak
     });
     
-    return data[0];
+    return streakData;
   } catch (error) {
-    console.error('Error getting user streak data:', error);
+    console.error('Error getting user streak data from local storage:', error);
     return null;
   }
 }
 
-// Save streak data to Supabase
-async function saveStreakData(data: StreakData, supabaseUserId: string): Promise<void> {
+// Save streak data to local storage
+async function saveStreakData(data: StreakData): Promise<void> {
   try {
-    // Include the Supabase user_id in the data
-    const dataWithUserId = {
-      ...data,
-      user_id: supabaseUserId
-    };
-    
-    // Use direct REST API access with apikey as URL parameter
-    const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-    const apiKey = ENV.SUPABASE_ANON_KEY;
-    
-    // Check if record exists first
-    const checkUrl = `${restEndpoint}/user_streaks?apikey=${apiKey}&anilist_id=eq.${data.anilist_id}`;
-    
-    // Log with masked API key but use real one for request
-    console.log('Checking if streak record exists:', checkUrl.replace(apiKey, '***'));
-    
-    const checkResponse = await fetch(checkUrl, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    });
-    
-    let response;
-    const recordExists = checkResponse.ok && (await checkResponse.json()).length > 0;
-    
-    if (recordExists) {
-      // Update existing record with PATCH
-      const updateUrl = `${restEndpoint}/user_streaks?apikey=${apiKey}&anilist_id=eq.${data.anilist_id}`;
-      console.log('Updating existing streak record');
-      
-      response = await fetch(updateUrl, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(dataWithUserId)
-      });
-    } else {
-      // Create new record with POST
-      const createUrl = `${restEndpoint}/user_streaks?apikey=${apiKey}`;
-      console.log('Creating new streak record');
-      
-      response = await fetch(createUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(dataWithUserId)
-      });
-    }
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-    
-    console.log('Successfully updated streak data');
+    const storageKey = `${STREAK_DATA_KEY_PREFIX}${data.anilist_id}`;
+    await SecureStore.setItemAsync(storageKey, JSON.stringify(data));
+    console.log('Successfully saved streak data to local storage');
   } catch (error) {
-    console.error('Error saving streak data:', error);
+    console.error('Error saving streak data to local storage:', error);
   }
 }
 

@@ -31,13 +31,13 @@ export default function CorrectMangaSearchModal({ isVisible, onClose, currentTit
         const loadPrefs = async () => {
             try {
                 const prefsString = await AsyncStorage.getItem('mangaProviderPreferences');
-                let prefs = prefsString ? JSON.parse(prefsString) : { defaultProvider: 'katana', autoSelectSource: false, preferredChapterLanguage: 'en' };
+                let prefs = prefsString ? JSON.parse(prefsString) : { defaultProvider: 'mangafire', autoSelectSource: false, preferredChapterLanguage: 'en' };
                 
 
                 
                 setPreferences(prefs);
             } catch {
-                setPreferences({ defaultProvider: 'katana', autoSelectSource: false, preferredChapterLanguage: 'en' });
+                setPreferences({ defaultProvider: 'mangafire', autoSelectSource: false, preferredChapterLanguage: 'en' });
             }
         };
         loadPrefs();
@@ -237,7 +237,7 @@ export default function CorrectMangaSearchModal({ isVisible, onClose, currentTit
                             onPress={() => setShowProviderDropdown(!showProviderDropdown)}
                         >
                             <Text style={styles.providerButtonText}>
-                                {preferences.defaultProvider === 'katana' ? 'Katana' : 
+                                {preferences.defaultProvider === 'mangafire' ? 'MangaFire' : 
                                  preferences.defaultProvider === 'mangadex' ? 'MangaDex' : 
                                  preferences.defaultProvider}
                             </Text>
@@ -247,16 +247,16 @@ export default function CorrectMangaSearchModal({ isVisible, onClose, currentTit
                         {showProviderDropdown && (
                             <View style={styles.providerDropdown}>
                                 <TouchableOpacity 
-                                    style={[styles.providerOption, preferences.defaultProvider === 'katana' && styles.providerOptionActive]}
+                                    style={[styles.providerOption, preferences.defaultProvider === 'mangafire' && styles.providerOptionActive]}
                                     onPress={() => {
-                                        const newPrefs = { ...preferences, defaultProvider: 'katana' as any };
+                                        const newPrefs = { ...preferences, defaultProvider: 'mangafire' as any };
                                         setPreferences(newPrefs);
                                         setShowProviderDropdown(false);
                                         AsyncStorage.setItem('mangaProviderPreferences', JSON.stringify(newPrefs));
                                     }}
                                 >
-                                    <Text style={[styles.providerOptionText, preferences.defaultProvider === 'katana' && styles.providerOptionTextActive]}>
-                                        Katana
+                                    <Text style={[styles.providerOptionText, preferences.defaultProvider === 'mangafire' && styles.providerOptionTextActive]}>
+                                        MangaFire
                                     </Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity 

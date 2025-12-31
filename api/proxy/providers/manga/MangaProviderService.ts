@@ -1,6 +1,7 @@
 import { Chapter, Provider } from './index';
 import { MangaDexProvider } from './mangadx';
 import KatanaProvider from './katana';
+import MangaFireProvider from './mangafire';
 import axios from 'axios';
 
 export interface SearchResult {
@@ -128,7 +129,7 @@ export class MangaProviderService {
     
     // Determine which providers to try
     const providersToTry: Provider[] = autoSelectSource 
-      ? ['katana', 'mangadex'] // Try best sources first when auto-select is ON
+      ? ['mangafire', 'mangadex'] // Try best sources first when auto-select is ON
       : [defaultProvider]; // Only try the selected provider when auto-select is OFF
 
     this.logDebug(`Auto-select is ${autoSelectSource ? 'ON' : 'OFF'}`);
@@ -189,6 +190,20 @@ export class MangaProviderService {
                   }));
                 }
                 break;
+
+              case 'mangafire':
+                const mangafireResults = await MangaFireProvider.search(currentTitle);
+                results = mangafireResults.map(r => ({
+                  id: r.id,
+                  title: r.title,
+                  source: 'mangafire' as Provider,
+                  coverImage: r.coverImage,
+                  status: r.status,
+                  genres: r.genres,
+                  summary: r.description,
+                  lastUpdated: r.lastUpdated
+                }));
+                break;
             }
 
             // If we got results, break out of the title loop
@@ -246,7 +261,6 @@ export class MangaProviderService {
           }));
           break;
 
-
         case 'mangadex':
           const mangadxResponse = await MangaDexProvider.fetchInfo(mangaId);
           
@@ -260,6 +274,15 @@ export class MangaProviderService {
           } else {
             throw new Error(mangadxResponse.data?.errorMessage || 'Failed to fetch manga info from MangaDex');
           }
+          break;
+
+        case 'mangafire':
+          const mangafireChapters = await MangaFireProvider.getChapters(mangaId);
+          chapters = mangafireChapters.map(ch => ({
+            ...ch,
+            thumbnail: coverImage,
+            source: 'mangafire'
+          }));
           break;
       }
 
@@ -277,9 +300,10 @@ export class MangaProviderService {
    */
   static async getChapterPages(
     chapterId: string, 
-    provider: Provider
+    provider: Provider,
+    mangaId?: string
   ): Promise<PageWithHeaders[]> {
-    this.logDebug(`Getting pages for chapter ${chapterId} from ${provider}`);
+    this.logDebug(`Getting pages for chapter ${chapterId} from ${provider}${mangaId ? ` (manga: ${mangaId})` : ''}`);
 
     try {
       let pages: PageWithHeaders[] = [];
@@ -293,7 +317,6 @@ export class MangaProviderService {
           }));
           break;
 
-
         case 'mangadex':
           const mangadxResponse = await MangaDexProvider.fetchChapterPages(chapterId);
           
@@ -306,6 +329,17 @@ export class MangaProviderService {
           } else {
             throw new Error(mangadxResponse.data?.errorMessage || 'Failed to fetch chapter pages');
           }
+          break;
+
+        case 'mangafire':
+          if (!mangaId) {
+            throw new Error('Manga ID is required for MangaFire provider');
+          }
+          const mangafireResponse = await MangaFireProvider.getChapterPages(chapterId, mangaId);
+          pages = mangafireResponse.pages.map(p => ({
+            url: p.url,
+            headers: p.headers
+          }));
           break;
       }
 
@@ -323,12 +357,13 @@ export class MangaProviderService {
    */
   static async getChapterThumbnailPage(
     chapterId: string, 
-    provider: Provider
+    provider: Provider,
+    mangaId?: string
   ): Promise<PageWithHeaders | null> {
     this.logDebug(`Getting thumbnail page for chapter ${chapterId} from ${provider}`);
 
     try {
-      const allPages = await this.getChapterPages(chapterId, provider);
+      const allPages = await this.getChapterPages(chapterId, provider, mangaId);
       // Return first page for thumbnail preview
       const thumbnailPage = allPages[0] || null;
       
@@ -355,6 +390,8 @@ export class MangaProviderService {
           return "Katana is currently unavailable. Please try enabling 'Auto-Select Best Source' or choose a different provider.";
         case 'mangadex':
           return "MangaDex is currently unavailable due to DMCA restrictions. Please try enabling 'Auto-Select Best Source' or choose a different provider.";
+        case 'mangafire':
+          return "MangaFire is currently unavailable. Please try enabling 'Auto-Select Best Source' or choose a different provider.";
         default:
           return "The selected provider is currently unavailable. Please try enabling 'Auto-Select Best Source' or choose a different provider.";
       }

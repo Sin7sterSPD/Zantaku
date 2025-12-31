@@ -29,7 +29,7 @@ interface MangaReaderPreferences {
 
 // Interface for manga provider preferences
 interface ProviderPreferences {
-  defaultProvider: 'mangadex' | 'katana';
+  defaultProvider: 'mangadex' | 'mangafire';
   autoSelectSource: boolean;
   preferredChapterLanguage: string;
   preferredScanlationGroup: string;
@@ -87,7 +87,7 @@ export default function MangaSettingsPage() {
 
   // State for provider settings
   const [providerPreferences, setProviderPreferences] = useState<ProviderPreferences>({
-    defaultProvider: 'katana',
+    defaultProvider: 'mangafire',
     autoSelectSource: true,
     preferredChapterLanguage: 'en',
     preferredScanlationGroup: '',
@@ -629,7 +629,7 @@ export default function MangaSettingsPage() {
           </View>
           <View style={styles.providerOptions}>
             {[
-              { id: 'katana', name: 'Katana', color: '#9C27B0' },
+              { id: 'mangafire', name: 'MangaFire', color: '#FF9800' },
               { id: 'mangadex', name: 'MangaDex', color: '#FF6740' }
             ].map(provider => (
               <TouchableOpacity
@@ -644,7 +644,7 @@ export default function MangaSettingsPage() {
                   if (!providerPreferences.autoSelectSource) {
                     saveProviderPreferences({
                       ...providerPreferences,
-                      defaultProvider: provider.id as 'mangadex' | 'katana'
+                      defaultProvider: provider.id as 'mangadex' | 'mangafire'
                     });
                   }
                 }}

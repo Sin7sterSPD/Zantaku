@@ -1,11 +1,15 @@
-// if you're reading this, then this manga provider is not working. This is a placeholder for now.
+// MangaFire Provider - Refactored to use new API (crysoline.moe)
+// Maintains existing contract for compatibility with MangaProviderService
 
-import axios from 'axios';
 import { Chapter } from './index';
+import { 
+  mangafireApiClient, 
+  MangaFireSearchResultRaw, 
+  MangaFireInfoRaw, 
+  MangaFireChapterRaw 
+} from './mangafireClient';
 
-const MANGAFIRE_BASE_URL = 'https://mangafire.to';
-const MANGAFIRE_API_URL = 'https://magaapinovel.xyz/api';
-
+// Provider contract interfaces (what TSX components consume)
 interface MangaFireSearchResult {
   id: string;
   title: string;
@@ -21,20 +25,10 @@ interface MangaFireSearchResult {
   lastUpdated: string;
 }
 
-interface MangaFireChapter {
-  id: string;
-  number: string;
-  title: string;
-  url: string;
-  updatedAt: string;
-  scanlationGroup: string;
-  pages: number;
-}
-
 interface MangaFirePage {
   url: string;
   number: number;
-  headers?: any;
+  headers?: Record<string, string>;
 }
 
 interface MangaFireChapterResponse {
@@ -43,33 +37,105 @@ interface MangaFireChapterResponse {
 }
 
 export class MangaFireProvider {
-  private async makeRequest(endpoint: string, query: string = '') {
-    try {
-      const url = `${MANGAFIRE_API_URL}${endpoint}${query}`;
-      console.log(`[MangaFire] Making request to ${url}`);
-      
-      const response = await axios.get(url, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Kamilist/1.0'
-        }
-      });
-      
-      console.log(`[MangaFire] Response from ${endpoint}${query}:`, JSON.stringify(response.data).substring(0, 500) + (JSON.stringify(response.data).length > 500 ? '...' : ''));
-      return response.data;
-    } catch (error) {
-      console.error(`MangaFire API Error (${endpoint}${query}):`, error);
-      
-      if (axios.isAxiosError(error) && error.response) {
-        console.error(`[MangaFire] Response status: ${error.response.status}`);
-        console.error(`[MangaFire] Response data:`, error.response.data);
-      }
-      
-      throw error;
+  /**
+   * Normalize manga ID to canonical format (without manga/ prefix)
+   * Canonical format: "one-piecee.dkw" (no prefix)
+   */
+  private normalizeMangaId(rawId: string): string {
+    if (rawId.startsWith('manga/')) {
+      return rawId.replace('manga/', '');
     }
+    return rawId;
   }
 
-  // Helper function to normalize titles for better matching
+  /**
+   * Convert canonical manga ID to API format if needed
+   * Currently API accepts IDs without prefix, so this is a pass-through
+   */
+  private toCanonicalMangaId(mangaId: string): string {
+    return this.normalizeMangaId(mangaId);
+  }
+
+  /**
+   * Extract title string from title object (prefer english > romaji > native > japanese)
+   */
+  private extractTitleString(title: MangaFireSearchResultRaw['title'] | MangaFireInfoRaw['title']): string {
+    if (typeof title === 'string') {
+      return title;
+    }
+    if (!title) {
+      return '';
+    }
+    return title.english || title.romaji || title.native || title.japanese || '';
+  }
+
+  /**
+   * Map raw search result to provider contract
+   */
+  private mapSearchResult(raw: MangaFireSearchResultRaw): MangaFireSearchResult {
+    const normalizedId = this.normalizeMangaId(raw.id);
+    const titleString = this.extractTitleString(raw.title);
+    
+    return {
+      id: normalizedId,
+      title: titleString,
+      altTitles: [],
+      description: '',
+      coverImage: raw.image?.large || raw.image?.medium || raw.image?.small || raw.metadata?.imageUrl || '',
+      status: raw.metadata?.status || '',
+      type: 'Manga',
+      genres: [],
+      authors: [],
+      rating: 0,
+      views: 0,
+      lastUpdated: ''
+    };
+  }
+
+  /**
+   * Map raw info result to provider contract
+   */
+  private mapInfoResult(raw: MangaFireInfoRaw, mangaId: string): MangaFireSearchResult {
+    const normalizedId = this.normalizeMangaId(mangaId);
+    const titleString = this.extractTitleString(raw.title);
+    
+    // Note: Info endpoint may not return image data, so we leave it empty
+    // The coverImage should come from search results or be passed separately
+    return {
+      id: normalizedId,
+      title: titleString,
+      altTitles: raw.synonyms || [],
+      description: raw.description || '',
+      coverImage: '', // Info endpoint doesn't return image data
+      status: raw.metadata?.status || '',
+      type: raw.metadata?.type || 'Manga',
+      genres: raw.metadata?.genres || [],
+      authors: raw.metadata?.author ? [raw.metadata.author] : [],
+      rating: 0,
+      views: 0,
+      lastUpdated: raw.metadata?.published || ''
+    };
+  }
+
+  /**
+   * Map raw chapter to provider contract
+   */
+  private mapChapter(raw: MangaFireChapterRaw, index: number): Chapter {
+    return {
+      id: raw.id,
+      number: raw.number.toString(),
+      title: raw.title || `Chapter ${raw.number}`,
+      url: raw.id,
+      updatedAt: raw.updatedAt,
+      scanlationGroup: '',
+      pages: 0,
+      translatedLanguage: 'en',
+      source: 'mangafire',
+      isLatest: index === 0 // Assume first chapter is latest (API may provide flag later)
+    };
+  }
+
+  // Helper function to normalize titles for better matching (kept for compatibility)
   private normalizeTitle(title: string): string {
     return title
       .replace(/[★☆]/g, '') // Remove star symbols
@@ -188,104 +254,41 @@ export class MangaFireProvider {
   async search(query: string, page: number = 1): Promise<MangaFireSearchResult[]> {
     console.log(`[MangaFire] Searching for: "${query}" (page ${page})`);
     
-    // The API uses the query directly in the URL path, not as a parameter
-    const data = await this.makeRequest('/search/', encodeURIComponent(query));
-    
-    console.log(`[MangaFire] Search results count: ${data?.list?.length || 0}`);
-    
-    // The API returns results in a "list" array
-    if (!data || !data.list || !Array.isArray(data.list)) {
-      console.error('[MangaFire] Invalid search response format:', data);
-      return [];
-    }
-    
-    if (data.list.length > 0) {
-      console.log(`[MangaFire] First search result:`, JSON.stringify(data.list[0]).substring(0, 300) + '...');
-    }
-    
-    // Sort results by relevance score
-    const scoredResults = data.list.map((result: any) => {
-      const score = this.calculateSimilarityScore(query, result.name || '');
-      return {
-        ...result,
-        relevanceScore: score
-      };
-    }).sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
-    
-    // Log the top 3 results with their scores for debugging
-    console.log(`[MangaFire] Top 3 results by relevance:`);
-    scoredResults.slice(0, 3).forEach((result: any, index: number) => {
-      console.log(`[MangaFire] ${index + 1}. "${result.name}" - Score: ${result.relevanceScore}`);
-    });
-    
-    // If we have Japanese characters in the query and the first result has a low score,
-    // try some fallback searches
-    if (this.containsJapanese(query) && scoredResults.length > 0 && scoredResults[0].relevanceScore < 50) {
-      console.log(`[MangaFire] Japanese query detected with low relevance, trying fallback searches...`);
+    try {
+      // Use new API client
+      const rawResults = await mangafireApiClient.search(query);
       
-      // Try searching for English equivalents
-      const fallbackQueries = this.getFallbackQueries(query);
-      let bestFallbackResults = scoredResults;
+      console.log(`[MangaFire] Search results count: ${rawResults.length}`);
       
-      for (const fallbackQuery of fallbackQueries) {
-        try {
-          console.log(`[MangaFire] Trying fallback search: "${fallbackQuery}"`);
-          const fallbackData = await this.makeRequest('/search/', encodeURIComponent(fallbackQuery));
-          
-          if (fallbackData?.list && Array.isArray(fallbackData.list) && fallbackData.list.length > 0) {
-            const fallbackScored = fallbackData.list.map((result: any) => {
-              const score = this.calculateSimilarityScore(query, result.name || '');
-              return {
-                ...result,
-                relevanceScore: score
-              };
-            }).sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
-            
-            // If fallback results have better scores, use them
-            if (fallbackScored[0].relevanceScore > bestFallbackResults[0].relevanceScore) {
-              console.log(`[MangaFire] Fallback search "${fallbackQuery}" produced better results`);
-              bestFallbackResults = fallbackScored;
-            }
-          }
-        } catch (error) {
-          console.log(`[MangaFire] Fallback search "${fallbackQuery}" failed:`, error);
-        }
+      if (rawResults.length === 0) {
+        return [];
       }
       
-      // Use the best results we found
-      if (bestFallbackResults !== scoredResults) {
-        console.log(`[MangaFire] Using fallback results instead of original search`);
-        return bestFallbackResults.map((result: any) => ({
-          id: result.id.replace('/manga/', ''),
-          title: result.name || '',
-          altTitles: [],
-          description: '',
-          coverImage: result.imageUrl || '',
-          status: '',
-          type: result.type || '',
-          genres: [],
-          authors: [],
-          rating: 0,
-          views: 0,
-          lastUpdated: ''
-        }));
-      }
+      // Map to provider contract
+      const mappedResults = rawResults.map(raw => this.mapSearchResult(raw));
+      
+      // Sort by relevance score (using existing logic for compatibility)
+      const scoredResults = mappedResults.map((result) => {
+        const score = this.calculateSimilarityScore(query, result.title);
+        return {
+          ...result,
+          relevanceScore: score
+        };
+      }).sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
+      
+      // Log top 3 results
+      console.log(`[MangaFire] Top 3 results by relevance:`);
+      scoredResults.slice(0, 3).forEach((result: any, index: number) => {
+        console.log(`[MangaFire] ${index + 1}. "${result.title}" - Score: ${result.relevanceScore}`);
+      });
+      
+      // Remove relevanceScore before returning (not part of contract)
+      return scoredResults.map(({ relevanceScore, ...result }) => result);
+      
+    } catch (error) {
+      console.error('[MangaFire] Search failed:', error);
+      throw error;
     }
-    
-    return scoredResults.map((result: any) => ({
-      id: result.id.replace('/manga/', ''), // Strip "/manga/" prefix for consistency
-      title: result.name || '',
-      altTitles: [],
-      description: '',
-      coverImage: result.imageUrl || '',
-      status: '',
-      type: result.type || '',
-      genres: [],
-      authors: [],
-      rating: 0,
-      views: 0,
-      lastUpdated: ''
-    }));
   }
 
   // Helper function to detect Japanese characters
@@ -293,190 +296,137 @@ export class MangaFireProvider {
     return /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/.test(text);
   }
 
-  // Helper function to get fallback search queries for Japanese titles
-  private getFallbackQueries(japaneseQuery: string): string[] {
-    const fallbacks: string[] = [];
-    
-    // Common Japanese to English mappings
-    if (japaneseQuery.includes('地雷')) {
-      fallbacks.push('landmine');
-      fallbacks.push('dangerous');
-    }
-    if (japaneseQuery.includes('地原')) {
-      fallbacks.push('chihara');
-    }
-    if (japaneseQuery.includes('なんですか')) {
-      fallbacks.push('desu ka');
-      fallbacks.push('what is');
-    }
-    
-    // Add the full English title if we can construct it
-    if (japaneseQuery.includes('地雷') && japaneseQuery.includes('地原')) {
-      fallbacks.push('landmine chihara');
-      fallbacks.push('dangerous chihara');
-      fallbacks.push('jirai chihara');
-    }
-    
-    return fallbacks;
-  }
 
   async getMangaDetails(id: string): Promise<MangaFireSearchResult> {
     console.log(`[MangaFire] Getting manga details for ID: ${id}`);
     
-    // Make sure the ID has the correct format
-    const mangaId = id.startsWith('/manga/') ? id : `/manga/${id}`;
-    
-    const data = await this.makeRequest('', mangaId);
-    console.log(`[MangaFire] Manga details:`, JSON.stringify(data).substring(0, 300) + '...');
-    
-    return {
-      id: id,
-      title: data.name || '',
-      altTitles: [],
-      description: data.description || '',
-      coverImage: data.imageUrl || '',
-      status: data.status || '',
-      type: 'Manga',
-      genres: data.genre?.map((g: any) => g) || [],
-      authors: [data.author || ''],
-      rating: 0,
-      views: 0,
-      lastUpdated: ''
-    };
+    try {
+      // Normalize ID before making request
+      const normalizedId = this.toCanonicalMangaId(id);
+      
+      // Use new API client
+      const rawInfo = await mangafireApiClient.getInfo(normalizedId);
+      console.log(`[MangaFire] Manga details received for ${normalizedId}`);
+      
+      // Map to provider contract
+      return this.mapInfoResult(rawInfo, normalizedId);
+      
+    } catch (error) {
+      console.error('[MangaFire] Failed to get manga details:', error);
+      throw error;
+    }
   }
 
   async getChapters(mangaId: string, options?: { offset?: number, limit?: number, includePages?: boolean }): Promise<Chapter[]> {
     console.log(`[MangaFire] Getting chapters for manga ID: ${mangaId}`, options ? `with options: ${JSON.stringify(options)}` : '');
     
-    // Apply defaults for pagination
-    const offset = options?.offset || 0;
-    const limit = options?.limit || 9999; // Default to all chapters if no limit specified
-    const includePages = options?.includePages !== false; // Default to true if not specified
-    
-    // Make sure the ID has the correct format
-    const formattedId = mangaId.startsWith('/manga/') ? mangaId : `/manga/${mangaId}`;
-    
-    // Get basic manga data
-    const data = await this.makeRequest('', formattedId);
-    console.log(`[MangaFire] Received data for ${mangaId}`);
-    
-    if (!data || !data.chapters || !Array.isArray(data.chapters)) {
-      console.error('[MangaFire] Invalid chapters response format:', data);
-      return [];
-    }
-    
-    // Apply pagination
-    const totalChapters = data.chapters.length;
-    console.log(`[MangaFire] Total chapters: ${totalChapters}, applying pagination (offset: ${offset}, limit: ${limit})`);
-    
-    // Extract the requested chapters slice
-    const paginatedChapters = data.chapters.slice(offset, offset + limit);
-    console.log(`[MangaFire] Returning ${paginatedChapters.length} chapters (${offset} to ${offset + paginatedChapters.length - 1})`);
-    
-    // Helpers to normalize chapter number and title
-    const extractChapterNumber = (name: string | undefined, fallbackIndex: number): string => {
-      if (!name) return `${fallbackIndex + 1}`;
-      const match = name.match(/(\d+(?:\.\d+)?)/);
-      if (match) return match[1];
-      return `${fallbackIndex + 1}`;
-    };
-
-    const cleanTitle = (name: string | undefined, numberText: string): string => {
-      if (!name) return `Chapter ${numberText}`;
-      const stripped = name
-        .replace(/^\s*(chap(ter)?\s*)/i, '')
-        .replace(/^[:\-\s]+/, '')
-        .replace(/[:\-\s]+$/, '')
-        .trim();
-      if (stripped === '' || stripped === numberText || /^\d+(?:\.\d+)?$/.test(stripped)) {
-        return `Chapter ${numberText}`;
+    try {
+      // Normalize ID before making request
+      const normalizedId = this.toCanonicalMangaId(mangaId);
+      
+      // Use new API client
+      const rawChapters = await mangafireApiClient.getChapters(normalizedId);
+      console.log(`[MangaFire] Received ${rawChapters.length} chapters for ${normalizedId}`);
+      
+      if (rawChapters.length === 0) {
+        return [];
       }
-      return stripped;
-    };
-
-    // Map to the expected format
-    return paginatedChapters.map((chapter: any, index: number) => {
-      const chapterNumber = extractChapterNumber(chapter.name, index);
-      const title = cleanTitle(chapter.name, chapterNumber);
-
-      return {
-        id: chapter.id || '',
-        number: chapterNumber,
-        title,
-        url: chapter.id || '',
-        updatedAt: chapter.dateUpload || '',
-        scanlationGroup: chapter.scanlator || 'Unknown',
-        scanlator: chapter.scanlator || '',
-        pages: 0, // Will be filled later if needed
-        volume: chapter.scanlator?.match(/Vol\s*(\d+)/i) ?
-          chapter.scanlator.match(/Vol\s*(\d+)/i)[1] : '',
-        translatedLanguage: 'en',
-        source: 'mangafire',
-        // Only set isLatest for the first chapter if this is the first page of results
-        isLatest: offset === 0 && index === 0
-      };
-    });
+      
+      // Sort chapters by number (descending - newest first)
+      const sortedChapters = [...rawChapters].sort((a, b) => b.number - a.number);
+      
+      // Apply pagination if needed
+      const offset = options?.offset || 0;
+      const limit = options?.limit || 9999;
+      const paginatedChapters = sortedChapters.slice(offset, offset + limit);
+      
+      console.log(`[MangaFire] Returning ${paginatedChapters.length} chapters (${offset} to ${offset + paginatedChapters.length - 1})`);
+      
+      // Map to provider contract
+      return paginatedChapters.map((raw, index) => {
+        const chapter = this.mapChapter(raw, index);
+        // Set isLatest only for first chapter if this is first page
+        chapter.isLatest = offset === 0 && index === 0;
+        return chapter;
+      });
+      
+    } catch (error) {
+      console.error('[MangaFire] Failed to get chapters:', error);
+      throw error;
+    }
   }
 
-  async getChapterPages(chapterId: string): Promise<MangaFireChapterResponse> {
-    console.log(`[MangaFire] Getting pages for chapter ID: ${chapterId}`);
+  async getChapterPages(chapterId: string, mangaId?: string): Promise<MangaFireChapterResponse> {
+    console.log(`[MangaFire] Getting pages for chapter ID: ${chapterId}, manga ID: ${mangaId || 'not provided'}`);
     
-    // Extract just the numeric chapter ID if it contains a manga path
-    let cleanChapterId = chapterId;
-    if (cleanChapterId.includes('/')) {
-      cleanChapterId = cleanChapterId.split('/').pop() || cleanChapterId;
+    if (!mangaId) {
+      throw new Error('Manga ID is required for MangaFire pages endpoint');
     }
     
-    console.log(`[MangaFire] Using clean chapter ID: ${cleanChapterId}`);
-    
-    // Use the correct page endpoint
-    const data = await this.makeRequest('/manga/page?id=', cleanChapterId);
-    console.log(`[MangaFire] Chapter pages data:`, JSON.stringify(data).substring(0, 300) + '...');
-    
-    // Check if response is in the expected format
-    if (!data) {
-      console.error('[MangaFire] Invalid chapter pages response format:', data);
-      return { pages: [], isLatestChapter: false };
-    }
-    
-    // Check if the response has the new format with isLatestChapter flag
-    const isLatestChapter = 
-      data.isLatestChapter === true || 
-      (typeof data.note === 'string' && data.note.includes("latest chapter"));
-    
-    console.log(`[MangaFire] Is latest chapter: ${isLatestChapter}`);
-    
-    // Handle both formats: array of pages directly or object with pages property
-    let pages;
-    if (Array.isArray(data)) {
-      // Old format: direct array of pages
-      pages = data;
-    } else if (data.pages && Array.isArray(data.pages)) {
-      // New format: object with pages array
-      pages = data.pages;
-    } else {
-      // Fallback to empty array if neither format matches
-      pages = [];
-    }
-    
-    console.log(`[MangaFire] Pages count: ${pages.length || 0}`);
-    if (pages.length > 0) {
-      console.log(`[MangaFire] First page:`, JSON.stringify(pages[0]).substring(0, 300) + '...');
-    }
-    
-    return {
-      pages: pages.map((page: any, index: number) => {
-        const pageHeaders = page.headers || { 'Referer': 'https://mangafire.to' };
-        console.log(`[MangaFire] Page ${index + 1} headers:`, pageHeaders);
-        
+    try {
+      // Use new API client with query parameters
+      const rawPages = await mangafireApiClient.getPages(mangaId, chapterId);
+      
+      console.log(`[MangaFire] 🔍 getChapterPages() received rawPages:`, {
+        type: typeof rawPages,
+        isArray: Array.isArray(rawPages),
+        hasPages: !!(rawPages as any)?.pages,
+        pagesLength: (rawPages as any)?.pages?.length || 0,
+        keys: rawPages ? Object.keys(rawPages) : 'null/undefined',
+        rawPagesString: JSON.stringify(rawPages).substring(0, 300)
+      });
+      
+      // The client should return { pages: [...], isLatestChapter: false }
+      // But handle edge cases where it might return array directly
+      let pagesArray: any[] = [];
+      if (rawPages && Array.isArray((rawPages as any).pages)) {
+        pagesArray = (rawPages as any).pages;
+        console.log(`[MangaFire] ✅ Using rawPages.pages (${pagesArray.length} items)`);
+      } else if (Array.isArray(rawPages)) {
+        // Fallback: if client returned array directly
+        pagesArray = rawPages;
+        console.log(`[MangaFire] ✅ Using rawPages as direct array (${pagesArray.length} items)`);
+      } else {
+        console.error(`[MangaFire] ❌ Invalid rawPages format:`, rawPages);
+        return { pages: [], isLatestChapter: false };
+      }
+      
+      if (pagesArray.length === 0) {
+        console.warn('[MangaFire] ⚠️ No pages returned from API - pagesArray is empty');
+        console.warn('[MangaFire] ⚠️ rawPages object:', JSON.stringify(rawPages).substring(0, 500));
+        return { pages: [], isLatestChapter: false };
+      }
+      
+      // Map to provider contract - ensure all required fields
+      const pages: MangaFirePage[] = pagesArray.map((page: any, index: number) => {
+        if (!page.url) {
+          console.warn(`[MangaFire] ⚠️ Page at index ${index} missing URL:`, page);
+          return null;
+        }
         return {
-          url: page.url || '',
-          number: index + 1,
-          headers: pageHeaders
+          url: page.url,
+          number: page.number || index + 1,
+          headers: page.headers || { 'Referer': 'https://mangafire.to' }
         };
-      }),
-      isLatestChapter: isLatestChapter
-    };
+      }).filter((p: any) => p !== null) as MangaFirePage[];
+      
+      console.log(`[MangaFire] ✅ Successfully loaded ${pages.length} pages`);
+      
+      return {
+        pages,
+        isLatestChapter: (rawPages as any)?.isLatestChapter || false
+      };
+      
+    } catch (error: any) {
+      // If pages endpoint is not implemented, return empty
+      if (error.message?.includes('not yet implemented')) {
+        console.warn('[MangaFire] Pages endpoint not yet implemented');
+        return { pages: [], isLatestChapter: false };
+      }
+      
+      console.error('[MangaFire] Failed to get chapter pages:', error);
+      throw error;
+    }
   }
 
   async advancedSearch(params: {
@@ -489,31 +439,28 @@ export class MangaFireProvider {
   }): Promise<MangaFireSearchResult[]> {
     console.log(`[MangaFire] Advanced search with params:`, params);
     
-    // Advanced search isn't supported in this API, so we'll just do a regular search
+    // Advanced search isn't fully supported in this API, so we'll do a regular search
+    // Use type as search term if provided, otherwise use a generic query
     const searchTerm = params.type || 'manga';
-    const data = await this.makeRequest('/search/', encodeURIComponent(searchTerm));
     
-    if (!data || !data.list || !Array.isArray(data.list)) {
-      console.error('[MangaFire] Invalid advanced search response format:', data);
+    try {
+      const rawResults = await mangafireApiClient.search(searchTerm);
+      
+      // Filter by status if provided
+      let filteredResults = rawResults;
+      if (params.status) {
+        filteredResults = filteredResults.filter(r => 
+          r.metadata?.status?.toLowerCase() === params.status?.toLowerCase()
+        );
+      }
+      
+      // Map to provider contract
+      return filteredResults.map(raw => this.mapSearchResult(raw));
+      
+    } catch (error) {
+      console.error('[MangaFire] Advanced search failed:', error);
       return [];
     }
-    
-    console.log(`[MangaFire] Advanced search results count: ${data.list.length || 0}`);
-    
-    return data.list.map((result: any) => ({
-      id: result.id.replace('/manga/', ''), // Strip "/manga/" prefix for consistency
-      title: result.name || '',
-      altTitles: [],
-      description: '',
-      coverImage: result.imageUrl || '',
-      status: '',
-      type: result.type || '',
-      genres: [],
-      authors: [],
-      rating: 0,
-      views: 0,
-      lastUpdated: ''
-    }));
   }
 }
 

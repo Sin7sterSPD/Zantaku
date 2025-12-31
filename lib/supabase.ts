@@ -121,183 +121,34 @@ export interface AnilistUser {
 }
 
 // Function to save Anilist user data to Supabase
+// NOTE: Supabase is no longer available, so this returns null immediately
+// to avoid slow network timeouts. The app works with AniList data only.
 export async function saveAnilistUser(userData: Omit<AnilistUser, 'id' | 'created_at' | 'updated_at'>) {
-  try {
-    console.log('📝 saveAnilistUser: Starting to save user to Supabase:', {
-      anilist_id: userData.anilist_id,
-      username: userData.username,
-      avatar_url: userData.avatar_url ? userData.avatar_url.substring(0, 15) + '...' : 'none',
-      access_token_length: userData.access_token?.length || 0,
-    });
-
-    // Use direct REST API access with apikey as URL parameter
-    const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-    const apiKey = ENV.SUPABASE_ANON_KEY;
-
-    // 1) Read once to preserve any existing verification state (defensive)
-    const checkUrl = `${restEndpoint}/anilist_users?apikey=${apiKey}&anilist_id=eq.${userData.anilist_id}`;
-    console.log('Making direct REST request to:', checkUrl.replace(apiKey, '***'));
-
-    let existingUser: any = null;
-    try {
-      const checkResponse = await fetch(checkUrl, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (checkResponse.ok) {
-        const existingData = await checkResponse.json();
-        console.log(`✅ User check complete: found ${existingData.length} matching records`);
-        existingUser = existingData?.[0] || null;
-      } else {
-        const errorText = await checkResponse.text();
-        console.error('❌ API Error during user check:', {
-          status: checkResponse.status,
-          statusText: checkResponse.statusText,
-          body: errorText,
-        });
-      }
-    } catch (readErr) {
-      console.error('User existence check failed but will continue with upsert:', readErr);
-    }
-
-    // 2) Never downgrade verification: once true, always true
-    const mergedIsVerified = (existingUser?.is_verified === true) || (userData.is_verified === true);
-
-    // 3) Build body and perform a single upsert using PostgREST conflict handling
-    const requestBody = {
-      anilist_id: userData.anilist_id,
-      username: userData.username,
-      avatar_url: userData.avatar_url,
-      access_token: userData.access_token,
-      is_verified: mergedIsVerified === true,
-      updated_at: new Date().toISOString(),
-    };
-
-    // Upsert on unique key anilist_id
-    const upsertUrl = `${restEndpoint}/anilist_users?apikey=${apiKey}&on_conflict=anilist_id`;
-    const response = await fetch(upsertUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        // Merge duplicates and return the final representation
-        'Prefer': 'resolution=merge-duplicates,return=representation',
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ API Error saving user (upsert):', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText,
-      });
-      throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    if (!data || data.length === 0) {
-      console.error('❌ No data returned from upsert operation');
-      throw new Error('Failed to save user data, no records returned');
-    }
-
-    let saved = data[0];
-
-    // 4) Sanity check: if, for any reason, the DB returned is_verified=false, force it to true
-    if (saved?.is_verified !== true) {
-      console.warn('⚠️ is_verified returned false from DB. Forcing true to prevent downgrade.');
-      const forceUrl = `${restEndpoint}/anilist_users?apikey=${apiKey}&anilist_id=eq.${userData.anilist_id}`;
-      const forceResp = await fetch(forceUrl, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Prefer': 'return=representation',
-        },
-        body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
-      });
-      if (forceResp.ok) {
-        const forced = await forceResp.json();
-        saved = forced?.[0] || saved;
-      } else {
-        const errText = await forceResp.text();
-        console.error('❌ Failed to force is_verified=true:', {
-          status: forceResp.status,
-          statusText: forceResp.statusText,
-          body: errText,
-        });
-      }
-    }
-
-    console.log('✅ Successfully saved user to Supabase REST API:', {
-      id: saved.id,
-      anilist_id: saved.anilist_id,
-      username: saved.username,
-      is_verified: saved.is_verified,
-      created_at: saved.created_at,
-    });
-    return saved;
-  } catch (error: any) {
-    console.error('❌ Error saving Anilist user:', { name: error.name, message: error.message });
-    // Don't throw the error, just log it and continue so the app still works offline/local
-    return null;
-  }
+  // Supabase is no longer available - return null immediately to avoid network delays
+  console.log('saveAnilistUser: Supabase is no longer available, skipping save for anilist_id:', userData.anilist_id);
+  return null;
 }
 
 // Function to get Anilist user data from Supabase
+// NOTE: Supabase is no longer available, so this returns null immediately
+// to avoid slow network timeouts. The app works with AniList data only.
 export async function getAnilistUser(anilistId: number) {
-  try {
-    console.log('Fetching user from Supabase with anilist_id:', anilistId);
-    
-    // Use direct REST API access with apikey as URL parameter
-    const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-    const apiKey = ENV.SUPABASE_ANON_KEY;
-    const url = `${restEndpoint}/anilist_users?apikey=${apiKey}&anilist_id=eq.${anilistId}`;
-    
-    console.log('Making direct REST request to:', url.replace(apiKey, '***'));
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API Error:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
-      return null;
-    }
-    
-    const data = await response.json();
-    
-    if (!data || data.length === 0) {
-      console.log('User not found in Supabase');
-      return null;
-    }
-    
-    console.log('Successfully fetched user from Supabase REST API:', {
-      id: data[0].id,
-      anilist_id: data[0].anilist_id,
-      username: data[0].username
-    });
-    
-    return data[0];
-  } catch (error) {
-    console.error('Error getting Anilist user:', error);
-    // Don't throw the error, just log it and continue
-    return null;
-  }
+  // Supabase is no longer available - return null immediately to avoid network delays
+  console.log('getAnilistUser: Supabase is no longer available, returning null for anilist_id:', anilistId);
+  return null;
 }
 
 // Function to check if anilist_users table exists
+// NOTE: Supabase is no longer available, so this returns false immediately
 export async function checkAnilistUsersTable() {
+  // Supabase is no longer available - return false immediately to avoid network delays
+  console.log('checkAnilistUsersTable: Supabase is no longer available, returning false');
+  return false;
+}
+
+// Old implementation removed - Supabase is no longer available
+// This function is kept for reference but is not used
+async function _old_checkAnilistUsersTable() {
   try {
     console.log('Checking anilist_users table...');
     
@@ -391,39 +242,12 @@ export async function getAllRewards() {
 }
 
 // Function to get user rewards
+// NOTE: Supabase is no longer available, so this returns empty array immediately
+// to avoid slow network timeouts. Rewards functionality is disabled.
 export async function getUserRewards(userId: string) {
-  try {
-    console.log('Fetching user rewards from Supabase for user:', userId);
-
-    // Use direct REST API access
-    const restEndpoint = `${ENV.SUPABASE_URL.replace(/\/$/, '')}`;
-    const apiKey = ENV.SUPABASE_ANON_KEY;
-    const url = `${restEndpoint}/user_rewards?apikey=${apiKey}&user_id=eq.${userId}&select=*,reward:rewards(*)`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      }
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error fetching user rewards:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: errorText
-      });
-      throw new Error('Failed to fetch user rewards');
-    }
-    
-    const data = await response.json();
-    console.log(`Successfully fetched ${data.length} user rewards from Supabase`);
-    return data as UserReward[];
-  } catch (error) {
-    console.error('Error getting user rewards:', error);
-    return [];
-  }
+  // Supabase is no longer available - return empty array immediately to avoid network delays
+  console.log('getUserRewards: Supabase is no longer available, returning empty array for user:', userId);
+  return [] as UserReward[];
 }
 
 // Function to assign a new reward to user

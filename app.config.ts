@@ -66,6 +66,14 @@ export default {
       XL_API_KEY_3: process.env.XL_API_KEY_3,
       XL_API_KEY_4: process.env.XL_API_KEY_4,
       XL_API_BASE: process.env.XL_API_BASE,
+      // Crysoline (MangaFire) API
+      CRY_API_KEY: process.env.cry_api,
+      CRY_API_BASE: process.env.crysoline,
+      // Zencloud API
+      ZEN_API_KEY: process.env.ZEN_API_KEY,
+      // Discord Supabase (for Discord OAuth)
+      DISCORD_SUPABASE_URL: process.env.DISCORD_SUPABASE_URL,
+      DISCORD_SUPABASE_ANON_KEY: process.env.DISCORD_SUPABASE_ANON_KEY,
       eas: {
         projectId: "6e9bc65b-f841-4d04-80d8-2fb3ca903bd8"
       }

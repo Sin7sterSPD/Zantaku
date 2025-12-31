@@ -92,7 +92,7 @@ interface ChapterSourcesModalProps {
   mangaTitle: { english: string; userPreferred: string; romaji?: string; native?: string; };
   mangaId: string;
   anilistId?: string;
-  currentProvider?: 'mangadex' | 'katana' | 'unknown';
+  currentProvider?: 'mangadex' | 'katana' | 'mangafire' | 'unknown';
   mangaSlugId?: string;
   chapterManager?: ChapterManager;
   format?: string;
@@ -229,7 +229,9 @@ export default function ChapterSourcesModal({ visible, onClose, chapter, mangaTi
         });
         
         try {
-          imageUrls = await MangaProviderService.getChapterPages(properChapterId, currentProvider as any);
+          // For mangafire, we need to pass mangaId
+          const mangaIdForProvider = currentProvider === 'mangafire' ? mangaSlugId : undefined;
+          imageUrls = await MangaProviderService.getChapterPages(properChapterId, currentProvider as any, mangaIdForProvider);
           console.log('🔧 MANGA PROVIDER SERVICE SUCCESS:', `${imageUrls.length} pages`);
           console.log('🔧 MANGA PROVIDER SERVICE IMAGES:', imageUrls);
         } catch (providerError) {
@@ -406,7 +408,9 @@ export default function ChapterSourcesModal({ visible, onClose, chapter, mangaTi
                 provider,
                 pagesUrl
             });
-            imageUrls = await MangaProviderService.getChapterPages(chapterId, provider as any);
+            // For mangafire, we need to pass mangaId
+            const mangaIdForProvider = provider === 'mangafire' ? mangaSlugId : undefined;
+            imageUrls = await MangaProviderService.getChapterPages(chapterId, provider as any, mangaIdForProvider);
             console.log('🔧 MANGA PROVIDER SERVICE RESULT:', imageUrls);
             console.log('🔧 MANGA PROVIDER SERVICE RESULT LENGTH:', imageUrls.length);
             logDebug(`MangaProviderService returned: ${imageUrls.length} pages`);

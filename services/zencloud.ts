@@ -1,17 +1,39 @@
 // services/zencloud.ts
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
-// Environment variables - read from .env file
-// Note: In React Native, you might need to use react-native-config or expo-constants
-// For now, using the values directly from .env as fallbacks
-const ENV = {
-  ZEN_BASE: 'https://zencloud.cc',
-  ZEN_CDN: 'https://zantaku.zencloud.cc', // CDN for better performance
-  ZEN_API_CDN: 'https://cdn.zencloud.cc', // API CDN
-  ZEN_API_KEY: 'yV2XTk5nW-8cddOr6GDSjP2UxZuWnSPte8ZjEhsrmkw',
-  ZEN_IP_DEFAULT: '1.1.1.1',
-  ZEN_TIMEOUT_MS: 10000,
-};
+// Environment variables - read from .env file via Expo Constants
+function getZenConfig() {
+  let apiKey = '';
+  
+  try {
+    // Try Expo Constants first (for React Native/Expo Go)
+    const env = Constants.expoConfig?.extra || {};
+    apiKey = env.ZEN_API_KEY || '';
+  } catch (error) {
+    console.warn('[Zencloud] Failed to load config from Expo Constants:', error);
+  }
+
+  // Fallback to process.env for Node.js environments
+  if (!apiKey && typeof process !== 'undefined' && process.env) {
+    apiKey = process.env.ZEN_API_KEY || '';
+  }
+
+  if (!apiKey) {
+    console.warn('[Zencloud] ⚠️ ZEN_API_KEY not found in environment variables');
+  }
+
+  return {
+    ZEN_BASE: 'https://zencloud.cc',
+    ZEN_CDN: 'https://zantaku.zencloud.cc', // CDN for better performance
+    ZEN_API_CDN: 'https://cdn.zencloud.cc', // API CDN
+    ZEN_API_KEY: apiKey,
+    ZEN_IP_DEFAULT: '1.1.1.1',
+    ZEN_TIMEOUT_MS: 10000,
+  };
+}
+
+const ENV = getZenConfig();
 
 export type ZenRawItem = {
   access_id: string;

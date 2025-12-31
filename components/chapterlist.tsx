@@ -71,24 +71,25 @@ const ChapterThumbnail = memo(({
     );
   }
 
-  if (!thumbnailPage && !fallbackImage) {
-    return (
-      <View style={styles.thumbnailContainer}>
-        <FontAwesome5 name="image" size={20} color="#666" />
-      </View>
-    );
-  }
+  // Always use fallback image if no thumbnail page, or if thumbnail URL is invalid
+  const imageUri = thumbnailPage?.url && thumbnailPage.url.length > 0 
+    ? thumbnailPage.url 
+    : (fallbackImage || defaultThumbnail);
 
   return (
     <ExpoImage
       source={{ 
-        uri: thumbnailPage?.url || fallbackImage || defaultThumbnail,
+        uri: imageUri,
         headers: thumbnailPage?.headers 
       }}
       style={styles.thumbnailImage}
       contentFit="cover"
       placeholder={PLACEHOLDER_BLUR_HASH}
       transition={200}
+      onError={(error) => {
+        // Silently fall back to default - don't crash
+        console.warn('[ChapterThumbnail] Image load error:', error);
+      }}
     />
   );
 });
@@ -115,12 +116,19 @@ const GridChapterCard = memo(({
     const chapterNum = parseFloat(chapter.number);
     const isRead = !isNaN(chapterNum) && chapterNum <= readProgress;
     
-    // Trigger thumbnail loading when component mounts
+    // Trigger thumbnail loading when component mounts - use ref to prevent infinite loops
+    const hasAttemptedLoad = React.useRef<string | null>(null);
     useEffect(() => {
-        if (!chapter.thumbnailPage && !isLoadingThumbnails) {
+        // Only attempt once per chapter ID, and only if not already loaded/loading
+        if (!chapter.thumbnailPage && !isLoadingThumbnails && hasAttemptedLoad.current !== chapter.id) {
+            hasAttemptedLoad.current = chapter.id;
             onLoadThumbnails(chapter);
         }
-    }, [chapter, onLoadThumbnails, isLoadingThumbnails]);
+        // Reset ref when chapter ID changes (new chapter)
+        if (hasAttemptedLoad.current && hasAttemptedLoad.current !== chapter.id) {
+            hasAttemptedLoad.current = null;
+        }
+    }, [chapter.id, chapter.thumbnailPage, isLoadingThumbnails, onLoadThumbnails]);
     
     return (
         <TouchableOpacity style={[styles.gridChapterCard, { backgroundColor: currentTheme.colors.surface }, isRead && styles.readGridCard]} onPress={() => onPress(chapter)} activeOpacity={0.7}>
@@ -160,12 +168,19 @@ const ListChapterCard = memo(({
     const chapterNum = parseFloat(chapter.number);
     const isRead = !isNaN(chapterNum) && chapterNum <= readProgress;
     
-    // Trigger thumbnail loading when component mounts
+    // Trigger thumbnail loading when component mounts - use ref to prevent infinite loops
+    const hasAttemptedLoad = React.useRef<string | null>(null);
     useEffect(() => {
-        if (!chapter.thumbnailPage && !isLoadingThumbnails) {
+        // Only attempt once per chapter ID, and only if not already loaded/loading
+        if (!chapter.thumbnailPage && !isLoadingThumbnails && hasAttemptedLoad.current !== chapter.id) {
+            hasAttemptedLoad.current = chapter.id;
             onLoadThumbnails(chapter);
         }
-    }, [chapter, onLoadThumbnails, isLoadingThumbnails]);
+        // Reset ref when chapter ID changes (new chapter)
+        if (hasAttemptedLoad.current && hasAttemptedLoad.current !== chapter.id) {
+            hasAttemptedLoad.current = null;
+        }
+    }, [chapter.id, chapter.thumbnailPage, isLoadingThumbnails, onLoadThumbnails]);
     
     return (
         <TouchableOpacity style={[styles.listChapterCard, { backgroundColor: currentTheme.colors.surface }, isRead && styles.readListCard]} onPress={() => onPress(chapter)} activeOpacity={0.7}>
@@ -279,7 +294,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
     const [error, setError] = useState<string | null>(null);
     const [readProgress, setReadProgress] = useState(0);
     const [isNewestFirst, setIsNewestFirst] = useState(true);
-    const [provider, setProvider] = useState<Provider>('katana');
+    const [provider, setProvider] = useState<Provider>('mangafire');
     const [showChapterModal, setShowChapterModal] = useState(false);
     const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
     const [preferences, setPreferences] = useState<ProviderPreferences | null>(null);
@@ -389,15 +404,41 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                 return exactMatch;
             }
             
-            // Special case: Look for "golshi" or "gol-shi" in the title
+            // Special case: Look for "golshi", "peace peace", "pisupisu", or "supi supi" in the title
             // This is a unique identifier for "Uma Musume Pretty Derby PisuPisu☆SupiSupi Golshi-chan"
-            const golshiMatch = results.find(r => 
-                r.title.toLowerCase().includes('golshi') || 
-                r.title.toLowerCase().includes('gol-shi') ||
-                r.title.toLowerCase().includes('golshi-chan')
-            );
+            // Also known as "Peace Peace☆Supi Supi Golshi-chan"
+            const golshiMatch = results.find(r => {
+                const title = r.title.toLowerCase();
+                return title.includes('golshi') || 
+                       title.includes('gol-shi') ||
+                       title.includes('golshi-chan') ||
+                       (title.includes('peace peace') && title.includes('supi')) ||
+                       (title.includes('pisupisu') && title.includes('supi')) ||
+                       (title.includes('pisu') && title.includes('supi') && title.includes('gol'));
+            });
             if (golshiMatch) {
                 return golshiMatch;
+            }
+            
+            // Penalty for "Nice Picture" when searching for Golshi-chan
+            if (searchTitle.includes('golshi') || searchTitle.includes('peace') || searchTitle.includes('pisupisu')) {
+                const nicePictureMatch = results.find(r => 
+                    r.title.toLowerCase().includes('nice picture')
+                );
+                if (nicePictureMatch && results.length > 1) {
+                    // Skip "Nice Picture" if there are other results
+                    const otherResults = results.filter(r => r.id !== nicePictureMatch.id);
+                    if (otherResults.length > 0) {
+                        // Try to find a better match from other results
+                        const betterMatch = otherResults.find(r => {
+                            const title = r.title.toLowerCase();
+                            return title.includes('peace') || title.includes('pisu') || title.includes('supi') || title.includes('gol');
+                        });
+                        if (betterMatch) {
+                            return betterMatch;
+                        }
+                    }
+                }
             }
             
             // Additional check: Look for the specific ID we know is correct
@@ -466,6 +507,17 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                 // Penalty for "Cinderella Gray" when we're looking for something else
                 if (resultTitle.includes('cinderella gray') && !searchTitle.toLowerCase().includes('cinderella')) {
                     score -= 20;
+                }
+                
+                // Penalty for "Nice Picture" when searching for Golshi-chan related titles
+                if (resultTitle.includes('nice picture') && (searchTitle.includes('golshi') || searchTitle.includes('peace') || searchTitle.includes('pisupisu'))) {
+                    score -= 30;
+                }
+                
+                // Bonus for "Peace Peace", "PisuPisu", "Supi Supi" when searching for Golshi-chan
+                if ((searchTitle.includes('golshi') || searchTitle.includes('peace') || searchTitle.includes('pisupisu')) &&
+                    (resultTitle.includes('peace peace') || resultTitle.includes('pisupisu') || resultTitle.includes('supi supi'))) {
+                    score += 30;
                 }
                 
                 // Special handling for Japanese titles
@@ -606,13 +658,13 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         const loadPrefs = async () => {
             try {
                 const prefsString = await AsyncStorage.getItem('mangaProviderPreferences');
-                let prefs = prefsString ? JSON.parse(prefsString) : { defaultProvider: 'katana', autoSelectSource: false, preferredChapterLanguage: 'en' };
+                let prefs = prefsString ? JSON.parse(prefsString) : { defaultProvider: 'mangafire', autoSelectSource: false, preferredChapterLanguage: 'en' };
                 
 
                 
                 setPreferences(prefs);
             } catch {
-                setPreferences({ defaultProvider: 'katana', autoSelectSource: false, preferredChapterLanguage: 'en' });
+                setPreferences({ defaultProvider: 'mangafire', autoSelectSource: false, preferredChapterLanguage: 'en' });
             }
         };
         const loadSortOrder = async () => {
@@ -631,9 +683,25 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         setCurrentMangaTitle(mangaTitle.userPreferred || mangaTitle.english || '');
     }, [fetchAniListProgress, mangaTitle]);
     
+    // Track if search is in progress to prevent duplicate searches
+    const isSearching = useRef(false);
+    const lastSearchKey = useRef<string>('');
+    
     useEffect(() => {
-        if (preferences) searchAndFetchChapters(preferences);
-    }, [preferences, searchAndFetchChapters]);
+        if (preferences) {
+            // Create a unique key for this search to prevent duplicates
+            const searchKey = `${preferences.defaultProvider}-${preferences.autoSelectSource}-${mangaTitle.userPreferred}`;
+            
+            // Only search if it's a new search (different key) and not already searching
+            if (searchKey !== lastSearchKey.current && !isSearching.current) {
+                lastSearchKey.current = searchKey;
+                isSearching.current = true;
+                searchAndFetchChapters(preferences).finally(() => {
+                    isSearching.current = false;
+                });
+            }
+        }
+    }, [preferences?.defaultProvider, preferences?.autoSelectSource, mangaTitle.userPreferred, searchAndFetchChapters]);
 
     useEffect(() => {
         // First sort chapters by number to create consistent ranges
@@ -669,6 +737,13 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
             const newPrefs = { ...preferences, defaultProvider: newProvider };
             setPreferences(newPrefs);
             AsyncStorage.setItem('mangaProviderPreferences', JSON.stringify(newPrefs));
+            // Update provider state immediately for UI feedback
+            setProvider(newProvider);
+            // Close dropdown
+            setShowProviderDropdown(false);
+            // Reset search key to allow new search
+            lastSearchKey.current = '';
+            // The useEffect will trigger the search automatically when preferences change
         }
     }, [preferences]);
 
@@ -676,36 +751,86 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         setShowCorrectMangaModal(true);
     }, []);
 
+    // Track failed thumbnail attempts to prevent infinite retries
+    const failedThumbnails = useRef<Set<string>>(new Set());
+    // Track active thumbnail loads to limit concurrency
+    const activeThumbnailLoads = useRef<number>(0);
+    const MAX_CONCURRENT_THUMBNAILS = 3; // Limit to 3 concurrent loads
+    
     // Function to lazily load thumbnail pages for a specific chapter
     const loadChapterThumbnails = useCallback(async (chapter: Chapter) => {
-        if (chapter.thumbnailPage || loadingThumbnails.has(chapter.id)) {
-            return; // Already loaded or loading
+        // Skip if already loaded, currently loading, or previously failed
+        if (chapter.thumbnailPage || failedThumbnails.current.has(chapter.id)) {
+            return;
+        }
+        
+        // Limit concurrent thumbnail loads to prevent overwhelming the system
+        if (activeThumbnailLoads.current >= MAX_CONCURRENT_THUMBNAILS) {
+            // Queue for later - retry after a short delay
+            setTimeout(() => {
+                if (!chapter.thumbnailPage && !failedThumbnails.current.has(chapter.id)) {
+                    loadChapterThumbnails(chapter);
+                }
+            }, 500);
+            return;
+        }
+        
+        // Use functional update to check current state
+        let shouldLoad = false;
+        setLoadingThumbnails(prev => {
+            if (prev.has(chapter.id)) {
+                return prev; // Already loading
+            }
+            shouldLoad = true;
+            const newSet = new Set(prev);
+            newSet.add(chapter.id);
+            return newSet;
+        });
+        
+        if (!shouldLoad) {
+            return;
         }
 
-        setLoadingThumbnails(prev => new Set(prev).add(chapter.id));
-
+        activeThumbnailLoads.current++;
+        
         try {
-            const thumbnailPage = await MangaProviderService.getChapterThumbnailPage(chapter.id, provider);
+            // For mangafire, we need to pass mangaId
+            const mangaIdForProvider = provider === 'mangafire' ? internalMangaId || undefined : undefined;
+            const thumbnailPage = await MangaProviderService.getChapterThumbnailPage(chapter.id, provider, mangaIdForProvider || undefined);
             
-            setChapters(prevChapters => 
-                prevChapters.map(ch => 
-                    ch.id === chapter.id 
-                        ? { ...ch, thumbnailPage: thumbnailPage || undefined }
-                        : ch
-                )
-            );
-            
-            // Thumbnail loaded successfully
+            if (thumbnailPage && thumbnailPage.url && thumbnailPage.url.length > 0) {
+                setChapters(prevChapters => 
+                    prevChapters.map(ch => 
+                        ch.id === chapter.id 
+                            ? { ...ch, thumbnailPage: thumbnailPage }
+                            : ch
+                    )
+                );
+                // Remove from failed set if it was there
+                failedThumbnails.current.delete(chapter.id);
+            } else {
+                // No thumbnail returned - mark as failed and use cover image fallback
+                failedThumbnails.current.add(chapter.id);
+                // Don't log as error - this is expected for some chapters
+            }
         } catch (error) {
-            logError(`Failed to load thumbnail for chapter ${chapter.number}:`, error);
+            // Mark as failed to prevent infinite retries
+            failedThumbnails.current.add(chapter.id);
+            // Only log if it's not a common error (like 404)
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (!errorMessage.includes('not found') && !errorMessage.includes('404')) {
+                logError(`Failed to load thumbnail for chapter ${chapter.number}:`, error);
+            }
+            // Don't set thumbnailPage - will use coverImage fallback from ChapterThumbnail component
         } finally {
+            activeThumbnailLoads.current = Math.max(0, activeThumbnailLoads.current - 1);
             setLoadingThumbnails(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(chapter.id);
                 return newSet;
             });
         }
-    }, [provider, loadingThumbnails]);
+    }, [provider, internalMangaId]);
 
     const renderItem = useCallback(({ item }: { item: Chapter }) => {
         return (
@@ -746,6 +871,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         switch (provider) {
             case 'katana': return '#9C27B0';
             case 'mangadex': return '#FF6740';
+            case 'mangafire': return '#FF9800';
     
             default: return '#02A9FF';
         }
@@ -755,6 +881,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         switch (provider) {
             case 'katana': return 'Katana';
             case 'mangadex': return 'MangaDex';
+            case 'mangafire': return 'MangaFire';
     
             default: return 'Unknown';
         }
@@ -780,7 +907,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                         style={styles.changeProviderButton}
                         onPress={() => {
                             // Cycle through providers
-                            const providers: Provider[] = ['katana', 'mangadex'];
+                            const providers: Provider[] = ['mangafire', 'mangadex'];
                             const currentIndex = providers.indexOf(provider);
                             const nextProvider = providers[(currentIndex + 1) % providers.length];
                             handleProviderChange(nextProvider);
@@ -795,6 +922,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                         {[
                             { id: 'katana', name: 'Katana', color: '#9C27B0' },
                             { id: 'mangadex', name: 'MangaDex', color: '#FF6740' },
+                            { id: 'mangafire', name: 'MangaFire', color: '#FF9800' },
                         ].map((providerOption) => (
                             <TouchableOpacity
                                 key={providerOption.id}
@@ -804,8 +932,10 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                                     { borderBottomColor: currentTheme.colors.border }
                                 ]}
                                 onPress={() => {
-                                    handleProviderChange(providerOption.id as Provider);
+                                    // Close dropdown first
                                     setShowProviderDropdown(false);
+                                    // Then change provider (this will trigger search)
+                                    handleProviderChange(providerOption.id as Provider);
                                 }}
                             >
                                 <View style={[styles.providerDropdownBadge, { backgroundColor: providerOption.color }]} />
