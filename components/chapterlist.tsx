@@ -307,6 +307,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
     const [showProviderDropdown, setShowProviderDropdown] = useState(false);
     const [loadingThumbnails, setLoadingThumbnails] = useState<Set<string>>(new Set());
     const [chapterManager, setChapterManager] = useState<ChapterManager | undefined>(undefined);
+    const [manuallySelectedProvider, setManuallySelectedProvider] = useState<Provider | null>(null);
 
     const handleMangaSelect = useCallback((mangaId: string) => {
         setInternalMangaId(mangaId);
@@ -590,11 +591,16 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
             return score;
         };
 
+        // If user manually selected a provider, use that specific provider (disable auto-select for this search)
+        const searchPrefs = manuallySelectedProvider 
+            ? { ...prefs, defaultProvider: manuallySelectedProvider, autoSelectSource: false }
+            : prefs;
+
         // Try each title variation until we find results
         for (const titleToSearch of uniqueTitleVariations) {
             try {
                 // Step 1: Search for the manga
-                const { results, provider: successfulProvider } = await MangaProviderService.searchManga(titleToSearch, prefs);
+                const { results, provider: successfulProvider } = await MangaProviderService.searchManga(titleToSearch, searchPrefs);
                 
                 if (results.length === 0) {
                     continue;
@@ -622,10 +628,14 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                 }
                 
                 setInternalMangaId(bestMatch.id);
-                setProvider(successfulProvider);
+                
+                // Only update provider if user hasn't manually selected one
+                // If user manually selected a provider, use that instead
+                const providerToUse = manuallySelectedProvider || successfulProvider;
+                setProvider(providerToUse);
 
-                // Step 3: Get chapters for the manga
-                const chapters = await MangaProviderService.getChapters(bestMatch.id, successfulProvider, coverImage);
+                // Step 3: Get chapters for the manga using the correct provider
+                const chapters = await MangaProviderService.getChapters(bestMatch.id, providerToUse, coverImage);
                 
                 if (chapters.length === 0) {
                     continue;
@@ -633,8 +643,8 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
 
                 setChapters(chapters);
                 
-                // Create ChapterManager for navigation
-                const manager = new ChapterManager(chapters, successfulProvider, bestMatch.id);
+                // Create ChapterManager for navigation using the correct provider
+                const manager = new ChapterManager(chapters, providerToUse, bestMatch.id);
                 setChapterManager(manager);
                 
                 setIsLoading(false);
@@ -649,10 +659,29 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
 
         // If we get here, all title variations failed
         logError('Failed to load chapters with any title variation:', lastError);
-        const errorMessage = `Could not find manga with any of the available titles: ${uniqueTitleVariations.join(', ')}. ${MangaProviderService.getProviderErrorMessage(prefs.defaultProvider, prefs.autoSelectSource)}`;
+        
+        // Use the actual provider that was tried (manually selected or default)
+        const actualProvider = manuallySelectedProvider || searchPrefs.defaultProvider;
+        
+        // Update provider state to reflect what was actually tried
+        setProvider(actualProvider);
+        
+        // Only show DMCA error for MangaDex, not for MangaFire
+        let errorMessage: string;
+        if (actualProvider === 'mangadex') {
+            errorMessage = `Could not find manga with any of the available titles: ${uniqueTitleVariations.join(', ')}. MangaDex is currently unavailable due to DMCA restrictions. Please try a different provider.`;
+        } else {
+            errorMessage = `Could not find manga with any of the available titles: ${uniqueTitleVariations.join(', ')}. ${MangaProviderService.getProviderErrorMessage(actualProvider, searchPrefs.autoSelectSource)}`;
+        }
+        
         setError(errorMessage);
         setIsLoading(false);
-    }, [mangaTitle, coverImage]);
+        
+        // If error mentions DMCA or MangaDex failed, automatically show the provider dropdown
+        if (errorMessage.toLowerCase().includes('dmca') || actualProvider === 'mangadex') {
+            setShowProviderDropdown(true);
+        }
+    }, [mangaTitle, coverImage, manuallySelectedProvider]);
 
     useEffect(() => {
         const loadPrefs = async () => {
@@ -681,6 +710,8 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         loadSortOrder();
         fetchAniListProgress();
         setCurrentMangaTitle(mangaTitle.userPreferred || mangaTitle.english || '');
+        // Reset manual provider selection when manga changes
+        setManuallySelectedProvider(null);
     }, [fetchAniListProgress, mangaTitle]);
     
     // Track if search is in progress to prevent duplicate searches
@@ -702,6 +733,13 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
             }
         }
     }, [preferences?.defaultProvider, preferences?.autoSelectSource, mangaTitle.userPreferred, searchAndFetchChapters]);
+
+    // Auto-show dropdown when DMCA error is detected
+    useEffect(() => {
+        if (error && (error.toLowerCase().includes('dmca') || (provider === 'mangadex' && error.toLowerCase().includes('unavailable')))) {
+            setShowProviderDropdown(true);
+        }
+    }, [error, provider]);
 
     useEffect(() => {
         // First sort chapters by number to create consistent ranges
@@ -734,7 +772,10 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
 
     const handleProviderChange = useCallback((newProvider: Provider) => {
         if (preferences) {
-            const newPrefs = { ...preferences, defaultProvider: newProvider };
+            // Mark that user manually selected this provider
+            setManuallySelectedProvider(newProvider);
+            
+            const newPrefs = { ...preferences, defaultProvider: newProvider, autoSelectSource: false };
             setPreferences(newPrefs);
             AsyncStorage.setItem('mangaProviderPreferences', JSON.stringify(newPrefs));
             // Update provider state immediately for UI feedback
@@ -755,7 +796,9 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
     const failedThumbnails = useRef<Set<string>>(new Set());
     // Track active thumbnail loads to limit concurrency
     const activeThumbnailLoads = useRef<number>(0);
-    const MAX_CONCURRENT_THUMBNAILS = 3; // Limit to 3 concurrent loads
+    // Track queued thumbnail loads to prevent duplicate queueing
+    const queuedThumbnails = useRef<Set<string>>(new Set());
+    const MAX_CONCURRENT_THUMBNAILS = 2; // Reduced to 2 to avoid overwhelming API
     
     // Function to lazily load thumbnail pages for a specific chapter
     const loadChapterThumbnails = useCallback(async (chapter: Chapter) => {
@@ -766,12 +809,19 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
         
         // Limit concurrent thumbnail loads to prevent overwhelming the system
         if (activeThumbnailLoads.current >= MAX_CONCURRENT_THUMBNAILS) {
-            // Queue for later - retry after a short delay
+            // Skip if already queued
+            if (queuedThumbnails.current.has(chapter.id)) {
+                return;
+            }
+            
+            // Queue for later - retry after a longer delay to space out requests
+            queuedThumbnails.current.add(chapter.id);
             setTimeout(() => {
+                queuedThumbnails.current.delete(chapter.id);
                 if (!chapter.thumbnailPage && !failedThumbnails.current.has(chapter.id)) {
                     loadChapterThumbnails(chapter);
                 }
-            }, 500);
+            }, 1000); // Increased delay to 1 second
             return;
         }
         
@@ -894,6 +944,7 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                     <TouchableOpacity 
                         style={[styles.providerBadge, { backgroundColor: getProviderColor(provider) }]}
                         onPress={() => setShowProviderDropdown(!showProviderDropdown)}
+                        activeOpacity={0.7}
                     >
                         <Text style={styles.providerBadgeText}>{getProviderName(provider)}</Text>
                         <FontAwesome5 
@@ -903,54 +954,63 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
                             style={{ marginLeft: 6 }}
                         />
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={styles.changeProviderButton}
-                        onPress={() => {
-                            // Cycle through providers
-                            const providers: Provider[] = ['mangafire', 'mangadex'];
-                            const currentIndex = providers.indexOf(provider);
-                            const nextProvider = providers[(currentIndex + 1) % providers.length];
-                            handleProviderChange(nextProvider);
-                        }}
-                    >
-                        <FontAwesome5 name="sync-alt" size={14} color={currentTheme.colors.text} />
-                    </TouchableOpacity>
                 </View>
                 
                 {showProviderDropdown && (
                     <View style={[styles.providerDropdown, { backgroundColor: currentTheme.colors.surface, borderColor: currentTheme.colors.border }]}>
                         {[
-                            { id: 'katana', name: 'Katana', color: '#9C27B0' },
-                            { id: 'mangadex', name: 'MangaDex', color: '#FF6740' },
-                            { id: 'mangafire', name: 'MangaFire', color: '#FF9800' },
-                        ].map((providerOption) => (
-                            <TouchableOpacity
-                                key={providerOption.id}
-                                style={[
-                                    styles.providerDropdownItem,
-                                    provider === providerOption.id && styles.providerDropdownItemActive,
-                                    { borderBottomColor: currentTheme.colors.border }
-                                ]}
-                                onPress={() => {
-                                    // Close dropdown first
-                                    setShowProviderDropdown(false);
-                                    // Then change provider (this will trigger search)
-                                    handleProviderChange(providerOption.id as Provider);
-                                }}
-                            >
-                                <View style={[styles.providerDropdownBadge, { backgroundColor: providerOption.color }]} />
-                                <Text style={[
-                                    styles.providerDropdownText, 
-                                    { color: currentTheme.colors.text },
-                                    provider === providerOption.id && styles.providerDropdownTextActive
-                                ]}>
-                                    {providerOption.name}
-                                </Text>
-                                {provider === providerOption.id && (
-                                    <FontAwesome5 name="check" size={14} color={providerOption.color} />
-                                )}
-                            </TouchableOpacity>
-                        ))}
+                            { id: 'mangafire', name: 'MangaFire', color: '#FF9800', available: true },
+                            { id: 'mangadex', name: 'MangaDex', color: '#FF6740', available: false, reason: 'DMCA Restricted' },
+                            { id: 'katana', name: 'Katana', color: '#9C27B0', available: true },
+                        ].map((providerOption, index, array) => {
+                            const isDisabled = !providerOption.available;
+                            return (
+                                <TouchableOpacity
+                                    key={providerOption.id}
+                                    style={[
+                                        styles.providerDropdownItem,
+                                        provider === providerOption.id && styles.providerDropdownItemActive,
+                                        isDisabled && styles.providerDropdownItemDisabled,
+                                        index < array.length - 1 && { borderBottomColor: currentTheme.colors.border }
+                                    ]}
+                                    onPress={() => {
+                                        if (isDisabled) return;
+                                        // Close dropdown first
+                                        setShowProviderDropdown(false);
+                                        // Then change provider (this will trigger search)
+                                        handleProviderChange(providerOption.id as Provider);
+                                    }}
+                                    activeOpacity={isDisabled ? 1 : 0.7}
+                                    disabled={isDisabled}
+                                >
+                                    <View style={[
+                                        styles.providerDropdownBadge, 
+                                        { backgroundColor: providerOption.color },
+                                        isDisabled && { opacity: 0.5 }
+                                    ]} />
+                                    <View style={styles.providerDropdownTextContainer}>
+                                        <Text style={[
+                                            styles.providerDropdownText, 
+                                            { color: isDisabled ? currentTheme.colors.textSecondary : currentTheme.colors.text },
+                                            provider === providerOption.id && styles.providerDropdownTextActive
+                                        ]}>
+                                            {providerOption.name}
+                                        </Text>
+                                        {providerOption.reason && (
+                                            <Text style={[styles.providerDropdownReason, { color: currentTheme.colors.textSecondary }]}>
+                                                {providerOption.reason}
+                                            </Text>
+                                        )}
+                                    </View>
+                                    {provider === providerOption.id && !isDisabled && (
+                                        <FontAwesome5 name="check" size={14} color={providerOption.color} />
+                                    )}
+                                    {isDisabled && (
+                                        <FontAwesome5 name="ban" size={12} color={currentTheme.colors.textSecondary} />
+                                    )}
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
                 )}
                 
@@ -997,26 +1057,53 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
 
     if (isLoading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={currentTheme.colors.primary} /></View>;
     if (error) return (
-        <View style={styles.errorContainer}>
-            <Text style={styles.errorText}>{error}</Text>
-            <View style={styles.errorButtons}>
+        <View style={[styles.errorContainer, { backgroundColor: currentTheme.colors.background }]}>
+            {showProviderDropdown && (
                 <TouchableOpacity 
-                    style={styles.retryButton} 
-                    onPress={() => {if(preferences) searchAndFetchChapters(preferences)}}
-                >
-                    <Text style={styles.retryButtonText}>Retry</Text>
-                </TouchableOpacity>
-                <TouchableOpacity 
-                    style={styles.searchButton} 
-                    onPress={() => {
-                        console.log('Search Manga button pressed, setting showCorrectMangaModal to true');
-                        alert('Search Manga button pressed!'); // Test if button works
-                        setShowCorrectMangaModal(true);
-                    }}
-                >
-                    <Text style={styles.searchButtonText}>Search Manga</Text>
-                </TouchableOpacity>
+                    style={styles.dropdownOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowProviderDropdown(false)}
+                />
+            )}
+            <View style={styles.errorContent}>
+                <View style={styles.errorHeader}>
+                    <FontAwesome5 name="exclamation-circle" size={24} color="#FF5252" />
+                    <Text style={[styles.errorTitle, { color: currentTheme.colors.text }]}>Unable to Load Manga</Text>
+                </View>
+                {renderProviderChanger()}
+                <View style={[styles.errorMessageBox, { backgroundColor: currentTheme.colors.surface }]}>
+                    <Text style={styles.errorText}>{error}</Text>
+                </View>
+                <View style={styles.errorButtons}>
+                    <TouchableOpacity 
+                        style={[styles.retryButton, { backgroundColor: currentTheme.colors.primary }]} 
+                        onPress={() => {
+                            if(preferences) {
+                                setError(null);
+                                searchAndFetchChapters(preferences);
+                            }
+                        }}
+                    >
+                        <FontAwesome5 name="redo" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity 
+                        style={[styles.searchButton, { backgroundColor: '#4CAF50' }]} 
+                        onPress={() => {
+                            setShowCorrectMangaModal(true);
+                        }}
+                    >
+                        <FontAwesome5 name="search" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Text style={styles.searchButtonText}>Search Manga</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
+            <CorrectMangaSearchModal
+                isVisible={showCorrectMangaModal}
+                onClose={() => setShowCorrectMangaModal(false)}
+                currentTitle={currentMangaTitle}
+                onMangaSelect={handleMangaSelect}
+            />
         </View>
     );
     if (chapters.length === 0) return <View style={styles.emptyContainer}><Text style={styles.emptyText}>No chapters available.</Text></View>;
@@ -1092,8 +1179,23 @@ export default function ChapterList({ mangaTitle, anilistId, coverImage, mangaId
 const styles = StyleSheet.create({
     container: { flex: 1, width: '100%', paddingTop: 100 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-    errorText: { fontSize: 16, textAlign: 'center', marginBottom: 16, color: '#FF5252' },
+    errorContainer: { flex: 1, paddingTop: 100 },
+    errorContent: { flex: 1, padding: 20, justifyContent: 'flex-start' },
+    errorHeader: { alignItems: 'center', marginBottom: 20 },
+    errorTitle: { fontSize: 20, fontWeight: '700', marginTop: 12, textAlign: 'center' },
+    errorMessageBox: { 
+        padding: 16, 
+        borderRadius: 12, 
+        marginVertical: 16,
+        borderLeftWidth: 4,
+        borderLeftColor: '#FF5252',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
+    },
+    errorText: { fontSize: 14, lineHeight: 20, color: '#FF5252' },
     retryButton: { backgroundColor: '#02A9FF', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, flex: 1, marginRight: 8 },
     retryButtonText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600', textAlign: 'center' },
     searchButton: { backgroundColor: '#4CAF50', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, flex: 1, marginLeft: 8 },
@@ -1172,7 +1274,7 @@ const styles = StyleSheet.create({
     providerRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
     },
     providerBadge: {
         paddingHorizontal: 12,
@@ -1209,10 +1311,7 @@ const styles = StyleSheet.create({
     },
     // Provider dropdown styles
     providerDropdown: {
-        position: 'absolute',
-        top: 50,
-        left: 0,
-        right: 0,
+        marginTop: 8,
         borderRadius: 8,
         borderWidth: 1,
         elevation: 10,
@@ -1220,7 +1319,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.25,
         shadowRadius: 4,
-        zIndex: 9999,
+        overflow: 'hidden',
     },
     providerDropdownItem: {
         flexDirection: 'row',
@@ -1238,13 +1337,24 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         marginRight: 12,
     },
+    providerDropdownTextContainer: {
+        flex: 1,
+        marginLeft: 4,
+    },
     providerDropdownText: {
         fontSize: 14,
         fontWeight: '500',
-        flex: 1,
     },
     providerDropdownTextActive: {
         fontWeight: '600',
+    },
+    providerDropdownReason: {
+        fontSize: 11,
+        marginTop: 2,
+        opacity: 0.7,
+    },
+    providerDropdownItemDisabled: {
+        opacity: 0.6,
     },
     dropdownOverlay: {
         position: 'absolute',
@@ -1253,6 +1363,7 @@ const styles = StyleSheet.create({
         right: 0,
         bottom: 0,
         zIndex: 9998,
+        backgroundColor: 'transparent',
     },
     
     // Continue Reading Button Styles

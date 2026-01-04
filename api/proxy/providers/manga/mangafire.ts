@@ -251,8 +251,8 @@ export class MangaFireProvider {
     return Math.min(100, wordMatchPercentage + positionBonus + lengthBonus + japaneseBonus);
   }
 
-  async search(query: string, page: number = 1): Promise<MangaFireSearchResult[]> {
-    console.log(`[MangaFire] Searching for: "${query}" (page ${page})`);
+  async search(query: string, page: number = 1, originalTitle?: string): Promise<MangaFireSearchResult[]> {
+    console.log(`[MangaFire] Searching for: "${query}" (page ${page})${originalTitle ? ` (original: "${originalTitle}")` : ''}`);
     
     try {
       // Use new API client
@@ -267,9 +267,10 @@ export class MangaFireProvider {
       // Map to provider contract
       const mappedResults = rawResults.map(raw => this.mapSearchResult(raw));
       
-      // Sort by relevance score (using existing logic for compatibility)
+      // Sort by relevance score - use original title if available for better matching
+      const titleForScoring = originalTitle || query;
       const scoredResults = mappedResults.map((result) => {
-        const score = this.calculateSimilarityScore(query, result.title);
+        const score = this.calculateSimilarityScore(titleForScoring, result.title);
         return {
           ...result,
           relevanceScore: score
